@@ -1,5 +1,5 @@
 {
-  "fetchedAt": 1788619364589,
+  "fetchedAt": 1788621835866,
   "source": "github.com/sp-tarkov/server (game data dump) + the-hideout/tarkov-dev maps_static.json",
   "note": "extract positions, keys, containers and quest zones come only from api.tarkov.dev"
 }

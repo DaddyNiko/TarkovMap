@@ -116,8 +116,13 @@
       st.appendChild(r);
     }
     const lv = document.createElement("span");
-    lv.className = "chip dim"; lv.textContent = "Loot value · not built yet"; lv.title = "Will colour areas by how valuable the loot that can spawn there is. The loose-loot positions and flea prices are now downloaded; the mode itself is the next build.";
+    const heatReady = Boolean(mapPayload.loot && mapPayload.loot.heat && mapPayload.loot.heat.cells.length);
+    lv.className = "chip" + (snap.settings.lootHeat && heatReady ? " on" : "") + (heatReady ? "" : " dim");
+    lv.textContent = heatReady ? "Loot value" : "Loot value · no loot data yet";
+    lv.title = heatReady ? "Colours 25 m squares by the loot that CAN spawn there (loose spawns priced at flea, containers by the game's loot tables). Possible loot — not what spawned in your raid." : "Needs the loot positions from tarkov.dev; they download on their own.";
+    lv.onclick = () => { if (heatReady) window.api.saveSettings({ lootHeat: !snap.settings.lootHeat }); };
     st.appendChild(lv);
+    $("heatLegend").style.display = snap.settings.lootHeat && heatReady ? "" : "none";
     $("flea").value = snap.settings.fleaMin;
     $("fleaVal").textContent = snap.settings.fleaMin ? snap.settings.fleaMin.toLocaleString() + " ₽" : "off";
     const d = snap.data || {};
@@ -132,7 +137,7 @@
 
   function paintMarkers() {
     if (!built || !snap || !mapPayload) return;
-    const key = JSON.stringify([[...on()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.fleaMin, currentFloor, Math.round(built.map.getZoom())]);
+    const key = JSON.stringify([[...on()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.fleaMin, snap.settings.lootHeat, currentFloor, Math.round(built.map.getZoom())]);
     if (key === lastMarkersKey) { updateDistances(); return; }
     lastMarkersKey = key;
     markers.clearLayers();
@@ -172,7 +177,15 @@
       }
       if (set.has("pmc")) for (const sp of f.pmcSpawns || []) markers.addLayer(L.marker(TM.pos(sp.position.x, sp.position.z), { icon: TM.dot(TM.COLORS.squad, ""), interactive: false }));
       if (set.has("hazards")) for (const h of f.hazards || []) if (h.position) markers.addLayer(L.marker(TM.pos(h.position.x, h.position.z), { icon: TM.dot(TM.COLORS.hazard, h.name), interactive: false }));
-      if (set.has("containers") || set.has("loot")) for (const c of f.lootContainers || []) if (c.position) markers.addLayer(L.marker(TM.pos(c.position.x, c.position.z), { icon: TM.dot(TM.COLORS.loot, set.has("containers") && c.lootContainer ? c.lootContainer.name : ""), interactive: false }));
+      if (set.has("containers")) for (const c of f.lootContainers || []) if (c.position) markers.addLayer(L.marker(TM.pos(c.position.x, c.position.z), { icon: TM.dot(TM.COLORS.loot, c.lootContainer ? c.lootContainer.name : ""), interactive: false }));
+      // Loot = loose-loot spawn points, labelled with the best item that CAN be there; the flea slider is the floor.
+      // With the slider off only the top 80 show, or the map is a pink blizzard.
+      if (set.has("loot") && mapPayload.loot) {
+        const min = snap.settings.fleaMin || 0;
+        const pts = min ? mapPayload.loot.points.filter((p) => p.price >= min) : mapPayload.loot.points.slice(0, 80);
+        for (const p of pts) markers.addLayer(L.marker(TM.pos(p.position.x, p.position.z), { icon: TM.dot(TM.COLORS.loot, `${p.name} · ${p.price >= 1000 ? Math.round(p.price / 1000) + "k" : p.price} ₽`), interactive: false }));
+      }
+      if (snap.settings.lootHeat && mapPayload.loot) markers.addLayer(TM.lootHeatLayer(mapPayload.loot.heat, { interactive: true }));
       if (set.has("guns")) for (const g of f.stationaryWeapons || []) if (g.position) markers.addLayer(L.marker(TM.pos(g.position.x, g.position.z), { icon: TM.dot(TM.COLORS.gun, g.stationaryWeapon ? g.stationaryWeapon.name : "MG"), interactive: false }));
       if (set.has("switches")) for (const sw of f.switches || []) if (sw.position) markers.addLayer(L.marker(TM.pos(sw.position.x, sw.position.z), { icon: TM.dot(TM.COLORS.switch, sw.name), interactive: false }));
     }

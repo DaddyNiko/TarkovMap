@@ -42,6 +42,8 @@ export interface Settings {
   layers: Record<string, string[]>;
   /** Flea filter threshold in roubles (0 = off). */
   fleaMin: number;
+  /** Colour the map by how valuable the loot that can spawn there is (possible loot, never what spawned). */
+  lootHeat: boolean;
   /** Squad */
   playerName: string;
   squadCode: string;
@@ -116,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   gameFov: 65,
   layers: {},
   fleaMin: 0,
+  lootHeat: false,
   playerName: "",
   squadCode: "",
   squadEnabled: false,
@@ -157,6 +160,7 @@ export function sanitize(s: Settings): Settings {
     followZoom: clamp(num(s.followZoom, DEFAULT_SETTINGS.followZoom), 1, 7),
     gameFov: clamp(num(s.gameFov, DEFAULT_SETTINGS.gameFov), 40, 110),
     fleaMin: Math.max(0, Math.round(num(s.fleaMin, 0))),
+    lootHeat: Boolean(s.lootHeat),
     corner: CORNERS.includes(s.corner) ? s.corner : "top-right",
     mode: (["manual", "hold", "timer"] as const).includes(s.mode) ? s.mode : "hold",
     playerName: String(s.playerName ?? "").slice(0, 24),

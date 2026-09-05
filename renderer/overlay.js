@@ -92,7 +92,7 @@
 
   function paintMarkers() {
     if (!built || !snap || !mapPayload) return;
-    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests, snap.floor]);
+    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests, snap.floor, snap.settings.fleaMin, snap.settings.lootHeat]);
     if (key === lastLayersKey) return;
     lastLayersKey = key;
     markers.clearLayers();
@@ -122,7 +122,13 @@
       }
       if (on.has("pmc")) for (const sp of f.pmcSpawns || []) markers.addLayer(L.marker(TM.pos(sp.position.x, sp.position.z), { icon: TM.dot(TM.COLORS.squad, ""), interactive: false }));
       if (on.has("hazards")) for (const h of f.hazards || []) if (h.position) markers.addLayer(L.marker(TM.pos(h.position.x, h.position.z), { icon: TM.dot(TM.COLORS.hazard, h.name), interactive: false }));
-      if (on.has("containers") || on.has("loot")) for (const c of f.lootContainers || []) if (c.position) markers.addLayer(L.marker(TM.pos(c.position.x, c.position.z), { icon: TM.dot(TM.COLORS.loot, ""), interactive: false }));
+      if (on.has("containers")) for (const c of f.lootContainers || []) if (c.position) markers.addLayer(L.marker(TM.pos(c.position.x, c.position.z), { icon: TM.dot(TM.COLORS.loot, ""), interactive: false }));
+      if (on.has("loot") && mapPayload.loot) {
+        const min = s.fleaMin || 0;
+        const pts = min ? mapPayload.loot.points.filter((p) => p.price >= min) : mapPayload.loot.points.slice(0, 80);
+        for (const p of pts) markers.addLayer(L.marker(TM.pos(p.position.x, p.position.z), { icon: TM.dot(TM.COLORS.loot, ""), interactive: false }));
+      }
+      if (s.lootHeat && mapPayload.loot) markers.addLayer(TM.lootHeatLayer(mapPayload.loot.heat, { interactive: false }));
       if (on.has("guns")) for (const g of f.stationaryWeapons || []) if (g.position) markers.addLayer(L.marker(TM.pos(g.position.x, g.position.z), { icon: TM.dot(TM.COLORS.gun, g.stationaryWeapon ? g.stationaryWeapon.name : "MG"), interactive: false }));
       if (on.has("switches")) for (const sw of f.switches || []) if (sw.position) markers.addLayer(L.marker(TM.pos(sw.position.x, sw.position.z), { icon: TM.dot(TM.COLORS.switch, sw.name), interactive: false }));
     }

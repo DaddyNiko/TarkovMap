@@ -18,7 +18,7 @@ export interface MapFeatures {
   spawns: Array<{ position: Vec3; sides: string[]; categories: string[]; zoneName?: string }>;
   hazards: Array<{ hazardType: string; name: string; position: Vec3 }>;
   locks: Array<{ lockType: string; key?: { name: string } | null; position: Vec3; needsPower?: boolean }>;
-  lootContainers: Array<{ position: Vec3; lootContainer: { name: string; normalizedName: string } }>;
+  lootContainers: Array<{ position: Vec3; lootContainer: { name: string; normalizedName: string; id?: string } }>;
   stationaryWeapons: Array<{ position: Vec3; stationaryWeapon: { name: string } }>;
   switches: Array<{ id: string; name: string; position: Vec3 }>;
   /** Extras beyond the GraphQL shape: the offline snapshot (src/offline-data.ts) and the JSON API (src/tarkov-json.ts). */

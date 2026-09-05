@@ -96,7 +96,7 @@ export function convertJsonMaps(payload: JsonMapsPayload, names: Names): { maps:
       spawns,
       hazards: (m.hazards ?? []).map((h) => ({ hazardType: h.hazardType, name: nameOf(names, h.name), position: h.position })),
       locks: (m.locks ?? []).map((l) => ({ lockType: l.lockType, key: l.key ? { name: itemName(names, l.key) } : null, position: l.position, needsPower: l.needsPower })),
-      lootContainers: (m.lootContainers ?? []).map((c) => { const t = d.lootContainers?.[c.lootContainer]; return { position: c.position, lootContainer: { name: nameOf(names, t?.name, prettify(t?.normalizedName ?? c.lootContainer)), normalizedName: t?.normalizedName ?? c.lootContainer } }; }),
+      lootContainers: (m.lootContainers ?? []).map((c) => { const t = d.lootContainers?.[c.lootContainer]; return { position: c.position, lootContainer: { id: c.lootContainer, name: nameOf(names, t?.name, prettify(t?.normalizedName ?? c.lootContainer)), normalizedName: t?.normalizedName ?? c.lootContainer } }; }),
       stationaryWeapons: (m.stationaryWeapons ?? []).map((w) => { const t = d.stationaryWeapons?.[w.stationaryWeapon]; return { position: w.position, stationaryWeapon: { name: nameOf(names, t?.name, prettify(t?.normalizedName ?? "gun")) } }; }),
       switches: (m.switches ?? []).map((s) => ({ id: s.id, name: prettify(s.name), position: s.position })),
       lootLoose: (m.lootLoose ?? []).filter((l) => l.position && l.items?.length).map((l) => ({ position: l.position, items: l.items })),

@@ -58,7 +58,7 @@ describe("convertJsonMaps", () => {
   it("names keys, containers, guns and hazards; keeps loose loot with items", () => {
     expect(c.locks[0]).toMatchObject({ lockType: "door", key: { name: "USEC stash key" }, needsPower: false });
     expect(c.locks[1].key).toBeNull();
-    expect(c.lootContainers[0].lootContainer).toEqual({ name: "Weapon box", normalizedName: "weapon-box" });
+    expect(c.lootContainers[0].lootContainer).toEqual({ id: "5909d76c86f77471e53d2adf", name: "Weapon box", normalizedName: "weapon-box" });
     expect(c.stationaryWeapons[0].stationaryWeapon.name).toBe("NSV Utyos");
     expect(c.hazards[0]).toMatchObject({ hazardType: "sniper", name: "Sniper" });
     expect(c.switches[0].name).toBe("DesignStuff 00034 reserve electric switcher lever");

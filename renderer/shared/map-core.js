@@ -5,6 +5,22 @@
 
   TM.RAID_MINUTES = { customs: 40, woods: 40, shoreline: 45, interchange: 40, reserve: 40, lighthouse: 40, "streets-of-tarkov": 45, "the-lab": 35, factory: 20, "ground-zero": 35, "the-labyrinth": 35, icebreaker: 40, terminal: 40 };
 
+  /** Loot-value tiers, cold → hot. Fill only; the map stays readable underneath. */
+  TM.HEAT_COLORS = ["#8a8f98", "#4caf50", "#f2c230", "#f28c28", "#e04848"];
+  /** Square cells of expected loot value (see src/loot-value.ts) as one layer group. */
+  TM.lootHeatLayer = function (heat, opts) {
+    const g = L.layerGroup();
+    if (!heat || !heat.cells) return g;
+    const half = heat.cell / 2;
+    const fmt = (v) => (v >= 1000 ? Math.round(v / 1000) + "k" : String(v));
+    for (const c of heat.cells) {
+      const b = L.latLngBounds(TM.pos(c.x - half, c.z - half), TM.pos(c.x + half, c.z + half));
+      const r = L.rectangle(b, { stroke: false, fillColor: TM.HEAT_COLORS[c.tier - 1] || TM.HEAT_COLORS[0], fillOpacity: c.tier >= 4 ? 0.5 : 0.38, interactive: Boolean(opts && opts.interactive) });
+      if (opts && opts.interactive) r.bindTooltip(`~${fmt(c.value)} ₽ possible · ${c.top.join(", ")}`, { direction: "top", sticky: true, opacity: 0.95 });
+      g.addLayer(r);
+    }
+    return g;
+  };
   /** How much of the ground shows through under a floor plan. */
   TM.GHOST_OPACITY = 0.22;
   TM.COLORS = { extract: "#78e68c", scavExtract: "#b8f0a0", transit: "#9be0ff", quest: "#ffc45c", loot: "#ff6e96", key: "#c8a0ff", squad: "#60c8ff", boss: "#ff5a5a", scav: "#d9c27a", hazard: "#ff8a3d", ping: "#ffc45c", gun: "#bfbfbf", switch: "#7fe3ff" };

@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const { SPT_LOCATIONS, sptToFeatures, sptQuestsToTasks } = await import(new URL("../dist/offline-data.js", import.meta.url).href);
+const { containerExpectedValue } = await import(new URL("../dist/loot-value.js", import.meta.url).href);
 const R = "https://raw.githubusercontent.com/sp-tarkov/server/master/project/assets/database";
 const OUT = join(ROOT, "data", "offline");
 mkdirSync(OUT, { recursive: true });
@@ -28,6 +29,18 @@ writeFileSync(join(OUT, "features.json"), JSON.stringify({ fetchedAt: Date.now()
 const prices = await get(`${R}/templates/prices.json`);
 writeFileSync(join(OUT, "prices.json"), JSON.stringify(prices));
 console.log(`prices: ${Object.keys(prices).length} items`);
+// container-values.json: { mapKey: { containerTemplateId: expected rouble value } } from staticLoot.json
+const containerValues = {};
+for (const [sptId, key] of Object.entries(SPT_LOCATIONS)) {
+  try {
+    const sl = await get(`${R}/locations/${sptId}/staticLoot.json`);
+    const table = {};
+    for (const [tpl, dist] of Object.entries(sl)) { const v = containerExpectedValue(dist, prices); if (v > 0) table[tpl] = v; }
+    containerValues[key] = table;
+    console.log(`${key}: ${Object.keys(table).length} container types priced`);
+  } catch (e) { console.log(`${key}: no loot table (${e.message})`); }
+}
+writeFileSync(join(OUT, "container-values.json"), JSON.stringify(containerValues));
 
 const quests = await get(`${R}/templates/quests.json`);
 const en = await get(`${R}/locales/global/en.json`);

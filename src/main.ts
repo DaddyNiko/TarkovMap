@@ -30,6 +30,7 @@ import { CACHE_TTL_MS, featuresFor, fetchFeatures, readCache, writeCache, type F
 import { cacheMapTiles, localTemplate, readSvg, tileTemplates, type FetchProgress } from "./tiles.js";
 import { activeQuestIds, applyQuestEvent, fetchTasks, objectivesOnMap, readTaskCache, writeTaskCache, type QuestBook, type TaskCache } from "./quests.js";
 import { convertJsonMaps, convertJsonTasks, fetchJson, type JsonMapsPayload, type JsonTasksPayload, type Names } from "./tarkov-json.js";
+import { lootHeat, lootPoints } from "./loot-value.js";
 import { SquadLink, type SquadPing, type SquadState } from "./squad.js";
 import { askModelForIntent, parseFilterPrompt, type FilterIntent } from "./filter-prompt.js";
 import { loadRegistration, register, saveRegistration, sourceFor, SOURCES, type ControlPoint, type Registration } from "./re3mr.js";
@@ -411,6 +412,15 @@ let dataTimer: NodeJS.Timeout | null = null;
 function offlineNames(): Names {
   try { return JSON.parse(readFileSync(join(ROOT, "data", "offline", "names.json"), "utf8")) as Names; } catch { return {}; }
 }
+let pricesMemo: Record<string, number> | null = null, containerMemo: Record<string, Record<string, number>> | null = null;
+function offlinePrices(): Record<string, number> {
+  if (!pricesMemo) { try { pricesMemo = JSON.parse(readFileSync(join(ROOT, "data", "offline", "prices.json"), "utf8")); } catch { pricesMemo = {}; } }
+  return pricesMemo!;
+}
+function offlineContainerValues(): Record<string, Record<string, number>> {
+  if (!containerMemo) { try { containerMemo = JSON.parse(readFileSync(join(ROOT, "data", "offline", "container-values.json"), "utf8")); } catch { containerMemo = {}; } }
+  return containerMemo!;
+}
 function offlineMapIds(): Record<string, string> {
   try { return JSON.parse(readFileSync(join(ROOT, "data", "offline", "map-ids.json"), "utf8")) as Record<string, string>; } catch { return {}; }
 }
@@ -574,8 +584,10 @@ function mapPayload(map: MapDef | null) {
   } : null;
   const bundled = join(ROOT, "data", "svg", `${map.key}.svg`);
   const svg = map.svgPath ? readSvg(TILE_ROOT(), map.svgPath) : existsSync(bundled) ? readFileSync(bundled, "utf8") : null;
+  const feats = featuresFor(features, map.normalizedName);
+  const loot = feats ? { points: lootPoints(feats, offlinePrices(), offlineNames()).slice(0, 400), heat: lootHeat(feats, offlinePrices(), offlineNames(), offlineContainerValues()[map.key] ?? {}) } : null;
   const svgTraced = !map.svgPath && existsSync(bundled) && map.key !== "the-lab";
-  return { def: map, svg, svgTraced, localTemplates: local, features: featuresFor(features, map.normalizedName), re3mr, re3mrAvailable: Boolean(src) };
+  return { def: map, svg, svgTraced, localTemplates: local, features: feats, loot, re3mr, re3mrAvailable: Boolean(src) };
 }
 
 let mapPayloadCache: { key: string | null; value: unknown } = { key: null, value: null };
@@ -716,13 +728,13 @@ function armDebugCapture(): void {
  * Settings are changed in memory only (nothing is saved); the fix is injected, not read from a file.
  */
 function armSequenceCapture(dir: string, seqFile: string): void {
-  type Step = { name: string; map: string; style?: "studio" | "night"; base?: "vector" | "re3mr"; fix?: [number, number, number, number]; layers?: string[]; wait?: number };
+  type Step = { name: string; map: string; style?: "studio" | "night"; base?: "vector" | "re3mr"; fix?: [number, number, number, number]; layers?: string[]; settings?: Partial<Settings>; wait?: number };
   const steps = JSON.parse(readFileSync(seqFile, "utf8")) as Step[];
   const settle = Number(process.env.TARKOVMAP_SHOT_DELAY_MS || 9000);
   setTimeout(async () => {
     mkdirSync(dir, { recursive: true });
     for (const st of steps) {
-      settings = { ...settings, manualMapKey: st.map, mapStyle: st.style ?? "studio", mapBase: st.base ?? "vector", layers: st.layers ? { ...settings.layers, [st.map]: st.layers } : settings.layers };
+      settings = { ...settings, ...(st.settings ?? {}), manualMapKey: st.map, mapStyle: st.style ?? "studio", mapBase: st.base ?? "vector", layers: st.layers ? { ...settings.layers, [st.map]: st.layers } : settings.layers };
       if (st.fix) lastFix = { x: st.fix[0], y: st.fix[1], z: st.fix[2], yaw: st.fix[3], q: [0, 0, 0, 1], file: "", at: Date.now() };
       mapPayloadCache = { key: null, value: null };
       broadcast("map", mapPayloadNow());
