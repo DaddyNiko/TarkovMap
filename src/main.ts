@@ -14,7 +14,8 @@
  * and (hold/timer mode) sends one keypress to the game window.
  */
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { promises as fsp } from "node:fs";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { dirname, join, resolve } from "node:path";
@@ -401,17 +402,39 @@ async function cacheAllTilesInBackground(): Promise<void> {
   for (const k of [...new Set(order)]) await ensureTiles(k);
 }
 
-function dirSize(dir: string): { bytes: number; files: number } {
-  let bytes = 0, files = 0;
-  const walk = (d: string) => {
-    let ents: string[];
-    try { ents = readdirSync(d); } catch { return; }
+/**
+ * Folder sizes for the Setup page. NEVER walked synchronously: the tile cache holds ~134,000 files,
+ * and the old synchronous walk ran inside EVERY snapshot (every fix, every 2 s) — 1-3 s of blocked
+ * main thread each time. Windows filed it as AppHangTransient, every window sat black waiting on
+ * `state:get`, and it read as "laggy, not loading, crashing" (2026-09-05). Now: a cached value,
+ * refreshed in the background at most every 2 min or when something writes to the folder.
+ */
+type DirSize = { bytes: number; files: number };
+const dirSizeCache = new Map<string, { value: DirSize; at: number; running: boolean }>();
+const DIR_SIZE_TTL_MS = 120_000;
+function dirSize(dir: string, force = false): DirSize {
+  const c = dirSizeCache.get(dir) ?? { value: { bytes: 0, files: 0 }, at: 0, running: false };
+  if (!dirSizeCache.has(dir)) dirSizeCache.set(dir, c);
+  if (!c.running && (force || Date.now() - c.at > DIR_SIZE_TTL_MS)) {
+    c.running = true;
+    void walkDirAsync(dir).then((v) => { c.value = v; c.at = Date.now(); c.running = false; pushSnapshot(); }).catch(() => { c.running = false; });
+  }
+  return c.value;
+}
+async function walkDirAsync(root: string): Promise<DirSize> {
+  let bytes = 0, files = 0, n = 0;
+  const stack = [root];
+  while (stack.length) {
+    const d = stack.pop() as string;
+    let ents: import("node:fs").Dirent[];
+    try { ents = await fsp.readdir(d, { withFileTypes: true }); } catch { continue; }
     for (const e of ents) {
-      const p = join(d, e);
-      try { const st = statSync(p); if (st.isDirectory()) walk(p); else { bytes += st.size; files++; } } catch { /* skip */ }
+      const p = join(d, e.name);
+      if (e.isDirectory()) { stack.push(p); continue; }
+      try { bytes += (await fsp.stat(p)).size; files++; } catch { /* skip */ }
+      if (++n % 500 === 0) await new Promise((r) => setImmediate(r)); // yield so IPC keeps flowing
     }
-  };
-  walk(dir);
+  }
   return { bytes, files };
 }
 
@@ -440,6 +463,7 @@ async function ensureRe3mr(key: string): Promise<void> {
     pushSnapshot();
     const r = await slice(USER(), key, file, (d, t) => { re3mrProgress[key] = { done: d, total: t, stage: "slicing" }; if (d % 100 === 0) pushSnapshot(); });
     re3mrReady.set(key, r);
+    dirSize(RE3MR_DIR(), true);
     delete re3mrProgress[key];
     log(`re3mr: ${key} ready (${r.tiles} tiles, ${r.width}×${r.height})`);
     mapPayloadCache = { key: null, value: null };
@@ -453,8 +477,10 @@ async function ensureRe3mr(key: string): Promise<void> {
   }
 }
 
+const registrationCache = new Map<string, Registration | null>();
 function registrationFor(key: string): Registration | null {
-  return loadRegistration(RE3MR_DIR(), key) ?? loadRegistration(join(ROOT, "data", "re3mr"), key);
+  if (!registrationCache.has(key)) registrationCache.set(key, loadRegistration(RE3MR_DIR(), key) ?? loadRegistration(join(ROOT, "data", "re3mr"), key));
+  return registrationCache.get(key) ?? null;
 }
 
 // ── Payloads ───────────────────────────────────────────────────────────────
@@ -543,7 +569,7 @@ function registerIpc(): void {
   ipcMain.handle("app:quit", () => { quitting = true; app.quit(); });
   ipcMain.handle("detect:install", () => detectInstall());
   ipcMain.handle("tiles:fetchAll", () => void cacheAllTilesInBackground());
-  ipcMain.handle("tiles:clear", () => { try { rmSync(TILE_ROOT(), { recursive: true, force: true }); tilesDone.clear(); tileProgress = {}; } catch (e) { log(`tiles: ${(e as Error).message}`); } return dirSize(TILE_ROOT()); });
+  ipcMain.handle("tiles:clear", () => { try { rmSync(TILE_ROOT(), { recursive: true, force: true }); tilesDone.clear(); tileProgress = {}; } catch (e) { log(`tiles: ${(e as Error).message}`); } return dirSize(TILE_ROOT(), true); });
   ipcMain.handle("data:refresh", () => void loadData());
   ipcMain.handle("quest:markDone", (_e, questId: string, done: boolean) => { const set = new Set(settings.manualDone); done ? set.add(questId) : set.delete(questId); patchSettings({ manualDone: [...set] }); });
   ipcMain.handle("quest:list", () => {
@@ -573,6 +599,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("re3mr:save", (_e, reg: Registration) => {
     saveRegistration(RE3MR_DIR(), reg);
+    registrationCache.delete(reg.key);
     log(`re3mr: ${reg.key} registration saved (${reg.points.length} points, ${reg.errorM.toFixed(1)} m)`);
     mapPayloadCache = { key: null, value: null };
     broadcast("map", mapPayloadNow());
