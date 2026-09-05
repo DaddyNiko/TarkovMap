@@ -117,5 +117,10 @@ describe("filter prompt", () => {
     expect(c.off).toContain("extracts");
     expect(parseFilterPrompt("blorp the frobnicator").understood).toBe(false);
     expect(parseFilterPrompt("where is fusion").find).toBe("fusion");
+    const d = parseFilterPrompt("show quest items and all quests");
+    expect(d.on).toEqual(expect.arrayContaining(["questitems", "allquests"]));
+    expect(d.on).not.toContain("extracts");
+    expect(parseFilterPrompt("only quests").on).toEqual(["quests"]);
+    expect(parseFilterPrompt("hide pmc spawns").off).toEqual(["pmc"]);
   });
 });

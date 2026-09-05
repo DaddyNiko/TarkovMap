@@ -29,7 +29,11 @@ export interface TaskObjective {
   zones?: TaskZone[];
   item?: { name: string; iconLink?: string } | null;
   count?: number;
-  questItem?: { name: string } | null;
+  questItem?: { name: string; id?: string } | null;
+  /** Every item id the objective accepts (giveItem / findItem / plantItem), whether it must be found in raid, optional. */
+  items?: string[];
+  foundInRaid?: boolean;
+  optional?: boolean;
 }
 
 export interface TaskDef {
@@ -39,6 +43,13 @@ export interface TaskDef {
   map?: { normalizedName: string } | null;
   objectives: TaskObjective[];
   minPlayerLevel?: number;
+  /** Prerequisite quests and the status each must have ("complete", "active", "failed"). */
+  taskRequirements?: Array<{ task: string; status: string[] }>;
+  wikiLink?: string;
+  kappaRequired?: boolean;
+  /** Key NAMES needed per map (resolved from ids by the converter). */
+  neededKeys?: Array<{ map: string | null; keys: string[] }>;
+  factionName?: string;
 }
 
 export const TASKS_QUERY = `{
@@ -62,13 +73,18 @@ export const TASKS_QUERY = `{
 export interface TaskCache {
   fetchedAt: number;
   tasks: TaskDef[];
+  /** Bumped when the stored shape gains fields the app needs; an older cache is refetched. */
+  version?: number;
 }
+export const TASK_CACHE_VERSION = 2;
 
-export function readTaskCache(file: string): TaskCache | null {
+export function readTaskCache(file: string, opts: { allowOld?: boolean } = {}): TaskCache | null {
   try {
     if (!existsSync(file)) return null;
     const c = JSON.parse(readFileSync(file, "utf8")) as TaskCache;
-    return Array.isArray(c?.tasks) ? c : null;
+    if (!Array.isArray(c?.tasks)) return null;
+    if (!opts.allowOld && (c.version ?? 1) < TASK_CACHE_VERSION) return null;
+    return c;
   } catch {
     return null;
   }
@@ -143,12 +159,8 @@ export function objectivesOnMap(book: QuestBook, tasks: TaskDef[], mapNormalized
   const out: MapObjective[] = [];
   for (const t of tasks) {
     if (!active.has(t.id)) continue;
-    const questMap = t.map?.normalizedName ?? null;
     for (const o of t.objectives ?? []) {
-      const objMaps = (o.maps ?? []).map((m) => m.normalizedName);
-      const impliedHere = objMaps.includes(mapNormalizedName) || (objMaps.length === 0 && questMap === mapNormalizedName);
-      const zonesHere = (o.zones ?? []).filter((z) => (z.map ? z.map.normalizedName === mapNormalizedName : impliedHere));
-      const onMap = impliedHere || zonesHere.length > 0;
+      const { onMap, zones: zonesHere } = objectiveZonesOnMap(t, o, mapNormalizedName);
       if (!onMap) continue;
       const base = {
         questId: t.id,
@@ -167,6 +179,16 @@ export function objectivesOnMap(book: QuestBook, tasks: TaskDef[], mapNormalized
     }
   }
   return out;
+}
+
+/** Which of an objective's zones sit on a map, and whether the objective belongs there at all
+ *  (it names the map, a zone sits on it, or the quest is bound to it and the objective names no map). */
+export function objectiveZonesOnMap(t: TaskDef, o: TaskObjective, mapNormalizedName: string): { onMap: boolean; zones: TaskZone[] } {
+  const questMap = t.map?.normalizedName ?? null;
+  const objMaps = (o.maps ?? []).map((m) => m.normalizedName);
+  const impliedHere = objMaps.includes(mapNormalizedName) || (objMaps.length === 0 && questMap === mapNormalizedName);
+  const zones = (o.zones ?? []).filter((z) => (z.map ? z.map.normalizedName === mapNormalizedName : impliedHere));
+  return { onMap: impliedHere || zones.length > 0, zones };
 }
 
 /** Metres between two game positions (1 unit = 1 m), ignoring height. */

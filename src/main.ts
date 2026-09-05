@@ -28,9 +28,11 @@ import { DEFAULT_SETTINGS, defaultScreenshotsFolder, loadSettings, sanitize, sav
 import { detectInstall, myDocuments } from "./install.js";
 import { CACHE_TTL_MS, featuresFor, fetchFeatures, readCache, writeCache, type FeatureCache } from "./map-features.js";
 import { cacheMapTiles, localTemplate, readSvg, tileTemplates, type FetchProgress } from "./tiles.js";
-import { activeQuestIds, applyQuestEvent, fetchTasks, objectivesOnMap, readTaskCache, writeTaskCache, type QuestBook, type TaskCache } from "./quests.js";
+import { activeQuestIds, applyQuestEvent, fetchTasks, objectivesOnMap, readTaskCache, TASK_CACHE_VERSION, writeTaskCache, type QuestBook, type TaskCache } from "./quests.js";
 import { convertJsonMaps, convertJsonTasks, fetchJson, type JsonMapsPayload, type JsonTasksPayload, type Names } from "./tarkov-json.js";
 import { lootHeat, lootPoints } from "./loot-value.js";
+import { allObjectivesOnMap, questStates, readProgress, setObjective, tickExtract, tickVisits, writeProgress, type QuestProgress, type QuestState } from "./quest-status.js";
+import { questItemMarkers } from "./quest-items.js";
 import { SquadLink, type SquadPing, type SquadState } from "./squad.js";
 import { askModelForIntent, parseFilterPrompt, type FilterIntent } from "./filter-prompt.js";
 import { loadRegistration, register, saveRegistration, sourceFor, SOURCES, type ControlPoint, type Registration } from "./re3mr.js";
@@ -46,6 +48,7 @@ const TILE_ROOT = () => join(USER(), "tiles");
 const FEATURES_FILE = () => join(USER(), "features.json");
 const TASKS_FILE = () => join(USER(), "tasks.json");
 const QUESTS_FILE = () => join(USER(), "quests.json");
+const PROGRESS_FILE = () => join(USER(), "quest-progress.json");
 const RE3MR_DIR = () => join(USER(), "re3mr");
 const DATA_RETRY_MS = 15 * 60 * 1000;
 
@@ -68,6 +71,7 @@ let features: FeatureCache | null = null;
 let tasks: TaskCache | null = null;
 let dataStatus = { features: "missing" as "ok" | "missing" | "cached" | "offline", tasks: "missing" as "ok" | "missing" | "cached" | "offline", lastError: "", nextRetryAt: 0 };
 let quests: QuestBook = {};
+let progress: QuestProgress = { version: 1, done: {} };
 let squad: SquadLink | null = null;
 let squadState: SquadState = { mates: {}, pings: [] };
 let myPings: SquadPing[] = [];
@@ -320,17 +324,29 @@ function armGame(): void {
     pushSnapshot();
   });
   game.on("event", (ev: LogEvent) => {
-    if (ev.type === "quest") { quests = applyQuestEvent(quests, ev); persistQuests(); pushSnapshot(); }
+    if (ev.type === "quest") { quests = applyQuestEvent(quests, ev); persistQuests(); invalidateQuests(); pushSnapshot(); }
+    if (ev.type === "ended") {
+      const r = tickExtract(questPayloadNow()?.all ?? [], lastFix, progress, Date.now());
+      if (r.newlyDone.length) { progress = r.progress; writeProgress(PROGRESS_FILE(), progress); log(`quest: extracted for ${r.newlyDone.length} objective(s)`); invalidateQuests(); }
+    }
   });
-  game.on("folder", (f: string) => log(`reading ${f}`));
+  game.on("folder", (f: string) => { log(`reading ${f}`); mergeQuestHistory(logsDir); });
   game.start();
   gameState = game.state;
   log(`watching logs in ${logsDir}`);
-  if (Object.keys(quests).length === 0) {
-    const hist = scanQuestHistory(logsDir);
-    for (const ev of hist) quests = applyQuestEvent(quests, ev);
-    if (hist.length) { log(`quest history: ${hist.length} events, ${activeQuestIds(quests).length} active`); persistQuests(); }
-  }
+  mergeQuestHistory(logsDir);
+}
+
+/** Fold every quest notification in the logs into the book (latest wins) — on boot and on every new log folder,
+ *  so a quest finished while the app was closed is not missed. */
+function mergeQuestHistory(logsDir: string): void {
+  const hist = scanQuestHistory(logsDir);
+  if (!hist.length) return;
+  const before = JSON.stringify(quests);
+  for (const ev of hist) quests = applyQuestEvent(quests, ev);
+  const changed = JSON.stringify(quests) !== before;
+  log(`quest history: ${hist.length} events, ${changed ? "book updated" : "nothing new"}, ${activeQuestIds(quests).length} active`);
+  if (changed) { persistQuests(); invalidateQuests(); pushSnapshot(); }
 }
 
 function onMapChanged(): void {
@@ -338,6 +354,8 @@ function onMapChanged(): void {
   trail.length = 0;
   myPings = [];
   mapPayloadCache = { key: null, value: null };
+  questCache = { key: null, value: null };
+  broadcast("quests", questPayloadNow());
   const m = currentMap();
   if (m) { void ensureTiles(m.key); void ensureRe3mr(m.key); }
   broadcast("map", mapPayloadNow());
@@ -356,6 +374,7 @@ function armFeed(): void {
     const floor = map ? floorForPosition(map, fix.x, fix.y, fix.z)?.name ?? null : null;
     squad?.shareFix({ x: fix.x, y: fix.y, z: fix.z, yaw: fix.yaw, floor });
     for (const r of testWaiters.splice(0)) r(fix);
+    tickFromFix(fix);
     pushSnapshot();
   });
   feed.on("swept", (n: number) => log(`screenshots: removed ${n} leftover file(s)`));
@@ -404,6 +423,45 @@ function persistQuests(): void {
 
 function loadQuests(): void {
   try { if (existsSync(QUESTS_FILE())) quests = JSON.parse(readFileSync(QUESTS_FILE(), "utf8")) as QuestBook; } catch { quests = {}; }
+  progress = readProgress(PROGRESS_FILE());
+}
+
+/** A fix inside a "visit" zone of an accepted quest ticks that objective — the one thing his own position can prove. */
+function tickFromFix(fix: { x: number; z: number }): void {
+  const q = questPayloadNow();
+  if (!q) return;
+  const r = tickVisits(q.all, fix, progress, Date.now());
+  if (!r.newlyDone.length) return;
+  progress = r.progress;
+  writeProgress(PROGRESS_FILE(), progress);
+  const names = q.all.filter((o) => r.newlyDone.includes(o.objectiveId)).map((o) => `${o.questName}: ${o.description}`);
+  log(`quest: objective reached — ${[...new Set(names)].join("; ")}`);
+  invalidateQuests();
+}
+
+// ── Quest payload: every objective on the map with its state, and the quest items to grab ──
+let questCache: { key: string | null; value: QuestPayload | null } = { key: null, value: null };
+interface QuestPayload { mapKey: string; states: Record<string, QuestState>; objectiveDone: QuestProgress["done"]; all: ReturnType<typeof allObjectivesOnMap>; items: ReturnType<typeof questItemMarkers>; hasItemData: boolean; source: string }
+function questPayload(map: MapDef | null): QuestPayload | null {
+  if (!map || !tasks) return null;
+  const states = questStates(tasks.tasks, quests, new Set(settings.manualDone));
+  const feats = featuresFor(features, map.normalizedName);
+  return {
+    mapKey: map.key, states, objectiveDone: progress.done,
+    all: allObjectivesOnMap(tasks.tasks, states, progress, map.normalizedName, true),
+    items: questItemMarkers(tasks.tasks, states, progress, feats, map.normalizedName, offlinePrices(), offlineNames()),
+    hasItemData: tasks.tasks.some((t) => t.objectives.some((o) => o.items?.length)),
+    source: dataStatus.tasks,
+  };
+}
+function questPayloadNow(): QuestPayload | null {
+  const map = currentMap();
+  if (questCache.key !== (map?.key ?? null) || !questCache.value) questCache = { key: map?.key ?? null, value: questPayload(map) };
+  return questCache.value;
+}
+function invalidateQuests(): void {
+  questCache = { key: null, value: null };
+  broadcast("quests", questPayloadNow());
 }
 
 // ── tarkov.dev data (markers, quests) ───────────────────────────────────────
@@ -427,12 +485,13 @@ function offlineMapIds(): Record<string, string> {
 async function loadData(): Promise<void> {
   features = readCache(FEATURES_FILE()) ?? (existsSync(join(ROOT, "data", "features.json")) ? readCache(join(ROOT, "data", "features.json")) : null);
   tasks = readTaskCache(TASKS_FILE()) ?? (existsSync(join(ROOT, "data", "tasks.json")) ? readTaskCache(join(ROOT, "data", "tasks.json")) : null);
+  if (!tasks) { const old = readTaskCache(TASKS_FILE(), { allowOld: true }); if (old) { tasks = { ...old, fetchedAt: 0 }; } } // an older cache shape: shown until the refetch lands
   dataStatus.features = features ? "cached" : "missing";
   dataStatus.tasks = tasks ? "cached" : "missing";
   // The game's own data dump (data/offline, built by scripts/fetch-spt-data.mjs) is the floor: scav /
   // PMC / boss spawns and extract names without any network. Anything from tarkov.dev replaces it.
   const offlineF = existsSync(join(ROOT, "data", "offline", "features.json")) ? readCache(join(ROOT, "data", "offline", "features.json")) : null;
-  const offlineT = existsSync(join(ROOT, "data", "offline", "tasks.json")) ? readTaskCache(join(ROOT, "data", "offline", "tasks.json")) : null;
+  const offlineT = existsSync(join(ROOT, "data", "offline", "tasks.json")) ? readTaskCache(join(ROOT, "data", "offline", "tasks.json"), { allowOld: true }) : null;
   if (!features && offlineF) { features = { ...offlineF, fetchedAt: 0 }; dataStatus.features = "offline"; }
   if (!tasks && offlineT) { tasks = { ...offlineT, fetchedAt: 0 }; dataStatus.tasks = "offline"; }
   const staleF = !features || Date.now() - features.fetchedAt > CACHE_TTL_MS;
@@ -449,7 +508,7 @@ async function loadData(): Promise<void> {
       try { const r = convertJsonMaps(await fetchJson<JsonMapsPayload>("maps"), names); maps = r.maps; ids = r.idToKey; }
       catch (e1) { log(`json.tarkov.dev maps failed (${(e1 as Error).message}) — trying the GraphQL API`); maps = await fetchFeatures(); via = "api.tarkov.dev"; }
       features = { fetchedAt: Date.now(), maps, mapIds: ids ?? features?.mapIds }; writeCache(FEATURES_FILE(), features); dataStatus.features = "ok";
-      log(`markers refreshed from ${via} (${maps.length} maps)`); mapPayloadCache = { key: null, value: null }; broadcast("map", mapPayloadNow());
+      log(`markers refreshed from ${via} (${maps.length} maps)`); mapPayloadCache = { key: null, value: null }; broadcast("map", mapPayloadNow()); invalidateQuests();
     } catch (e) { failed = true; dataStatus.lastError = (e as Error).message; }
   }
   if (staleT) {
@@ -457,7 +516,7 @@ async function loadData(): Promise<void> {
       let list: TaskCache["tasks"], via = "json.tarkov.dev";
       try { list = convertJsonTasks(await fetchJson<JsonTasksPayload>("tasks"), mapIds(), names); }
       catch (e1) { log(`json.tarkov.dev tasks failed (${(e1 as Error).message}) — trying the GraphQL API`); list = await fetchTasks(); via = "api.tarkov.dev"; }
-      tasks = { fetchedAt: Date.now(), tasks: list }; writeTaskCache(TASKS_FILE(), tasks); dataStatus.tasks = "ok"; log(`quests refreshed from ${via} (${list.length} tasks)`);
+      tasks = { fetchedAt: Date.now(), tasks: list, version: TASK_CACHE_VERSION }; writeTaskCache(TASKS_FILE(), tasks); dataStatus.tasks = "ok"; log(`quests refreshed from ${via} (${list.length} tasks)`); invalidateQuests();
     } catch (e) { failed = true; dataStatus.lastError = (e as Error).message; }
   }
   if (failed) {
@@ -604,7 +663,7 @@ function snapshot() {
   return {
     settings, game: gameState, fix: lastFix, floor, trail: trail.slice(-200), mapKey: map?.key ?? null,
     mapSource: gameState.raid === "in-raid" && gameState.mapKey ? "game" : settings.manualMapKey ? "pick" : "last",
-    objectives, activeQuestCount: activeQuestIds(quests).filter((q) => !settings.manualDone.includes(q)).length,
+    objectives, activeQuestCount: activeQuestIds(quests).filter((q) => !settings.manualDone.includes(q)).length, questProgressCount: Object.keys(progress.done).length, version: app.getVersion(),
     squad: { ...squadState, pings: [...squadState.pings, ...myPings.filter((p) => p.at + p.ttlMs > Date.now())] },
     maps: MAPS.map((m) => ({ key: m.key, name: m.name, re3mr: Boolean(sourceFor(m.key)), re3mrReady: re3mrReady.has(m.key), registered: Boolean(registrationFor(m.key)), errorM: registrationFor(m.key)?.errorM ?? null, projective: Boolean(registrationFor(m.key)?.homography) })),
     displays: screen.getAllDisplays().map((d) => ({ id: d.id, label: `${d.label || "Display"} ${d.size.width}×${d.size.height}${d.id === screen.getPrimaryDisplay().id ? " (main)" : ""}`, primary: d.id === screen.getPrimaryDisplay().id })),
@@ -638,12 +697,16 @@ function patchSettings(patch: Partial<Settings>): void {
   if (before.startWithWindows !== settings.startWithWindows) { applyLoginItem(); tray?.setContextMenu(trayMenu()); }
   if ((currentMap()?.key ?? null) !== beforeMap) onMapChanged();
   else if (before.mapBase !== settings.mapBase || before.mapStyle !== settings.mapStyle) broadcast("map", mapPayloadNow());
+  if (JSON.stringify(before.manualDone) !== JSON.stringify(settings.manualDone)) invalidateQuests();
   pushSnapshot();
 }
 
 // ── IPC ────────────────────────────────────────────────────────────────────
 function registerIpc(): void {
-  ipcMain.handle("state:get", () => ({ ...snapshot(), map: mapPayloadNow() }));
+  ipcMain.handle("state:get", () => ({ ...snapshot(), map: mapPayloadNow(), quests: questPayloadNow() }));
+  ipcMain.handle("quests:get", () => questPayloadNow());
+  ipcMain.handle("quest:markObjective", (_e, objectiveId: string, done: boolean) => { progress = setObjective(progress, String(objectiveId), Boolean(done), Date.now()); writeProgress(PROGRESS_FILE(), progress); invalidateQuests(); pushSnapshot(); });
+  ipcMain.handle("quests:rescan", () => { const d = settings.installPath ? logsDirFor(settings.installPath) : null; if (d) mergeQuestHistory(d); return { active: activeQuestIds(quests).length, known: Object.keys(quests).length }; });
   ipcMain.handle("map:get", () => mapPayloadNow());
   ipcMain.handle("settings:save", (_e, patch: Partial<Settings>) => { patchSettings(patch); return snapshot(); });
   ipcMain.handle("map:select", (_e, key: string | null) => patchSettings({ manualMapKey: key || null }));
@@ -667,8 +730,13 @@ function registerIpc(): void {
   ipcMain.handle("data:refresh", () => void loadData());
   ipcMain.handle("quest:markDone", (_e, questId: string, done: boolean) => { const set = new Set(settings.manualDone); done ? set.add(questId) : set.delete(questId); patchSettings({ manualDone: [...set] }); });
   ipcMain.handle("quest:list", () => {
-    const active = new Set(activeQuestIds(quests));
-    return (tasks?.tasks ?? []).filter((t) => active.has(t.id)).map((t) => ({ id: t.id, name: t.name, trader: t.trader, map: t.map?.normalizedName ?? null, done: settings.manualDone.includes(t.id), objectives: t.objectives.map((o) => ({ id: o.id, type: o.type, description: o.description, maps: (o.maps ?? []).map((m) => m.normalizedName) })) }));
+    if (!tasks) return [];
+    const states = questStates(tasks.tasks, quests, new Set(settings.manualDone));
+    return tasks.tasks.map((t) => ({
+      id: t.id, name: t.name, trader: { ...t.trader, portrait: `https://assets.tarkov.dev/${t.trader.id}.webp` }, map: t.map?.normalizedName ?? null, state: states[t.id], done: settings.manualDone.includes(t.id),
+      minPlayerLevel: t.minPlayerLevel, wikiLink: t.wikiLink, kappaRequired: t.kappaRequired,
+      objectives: t.objectives.map((o) => ({ id: o.id, type: o.type, description: o.description, maps: (o.maps ?? []).map((m) => m.normalizedName), done: Boolean(progress.done[o.id]), optional: Boolean(o.optional) })),
+    }));
   });
   ipcMain.handle("squad:ping", (_e, text: string) => dropPing(String(text).slice(0, 40) || "ping"));
   ipcMain.handle("squad:status", (_e, flag: string) => squad?.status(String(flag).slice(0, 20)));
@@ -719,6 +787,7 @@ function armDebugCapture(): void {
         log(`debug: captured ${name}`);
       } catch (e) { log(`debug: ${name} capture failed: ${(e as Error).message}`); }
     }
+    if (HEADLESS) { quitting = true; app.quit(); } // nothing on screen to keep alive for
   }, delay);
 }
 
@@ -728,18 +797,25 @@ function armDebugCapture(): void {
  * Settings are changed in memory only (nothing is saved); the fix is injected, not read from a file.
  */
 function armSequenceCapture(dir: string, seqFile: string): void {
-  type Step = { name: string; map: string; style?: "studio" | "night"; base?: "vector" | "re3mr"; fix?: [number, number, number, number]; layers?: string[]; settings?: Partial<Settings>; wait?: number };
+  type Step = { name: string; map: string; style?: "studio" | "night"; base?: "vector" | "re3mr"; fix?: [number, number, number, number]; layers?: string[]; settings?: Partial<Settings>; quests?: QuestBook; js?: string; wait?: number };
   const steps = JSON.parse(readFileSync(seqFile, "utf8")) as Step[];
   const settle = Number(process.env.TARKOVMAP_SHOT_DELAY_MS || 9000);
   setTimeout(async () => {
     mkdirSync(dir, { recursive: true });
     for (const st of steps) {
       settings = { ...settings, ...(st.settings ?? {}), manualMapKey: st.map, mapStyle: st.style ?? "studio", mapBase: st.base ?? "vector", layers: st.layers ? { ...settings.layers, [st.map]: st.layers } : settings.layers };
-      if (st.fix) lastFix = { x: st.fix[0], y: st.fix[1], z: st.fix[2], yaw: st.fix[3], q: [0, 0, 0, 1], file: "", at: Date.now() };
+      if (st.quests) quests = st.quests;
       mapPayloadCache = { key: null, value: null };
+      questCache = { key: null, value: null };
       broadcast("map", mapPayloadNow());
+      broadcast("quests", questPayloadNow());
+      if (st.fix) { lastFix = { x: st.fix[0], y: st.fix[1], z: st.fix[2], yaw: st.fix[3], q: [0, 0, 0, 1], file: "", at: Date.now() }; tickFromFix(lastFix); }
       pushSnapshot();
       await new Promise((r) => setTimeout(r, st.wait ?? 5000));
+      if (st.js && bigmap && !bigmap.isDestroyed()) {
+        try { const r = await bigmap.webContents.executeJavaScript(st.js); writeFileSync(join(dir, `${st.name}-js.json`), JSON.stringify(r ?? null)); await new Promise((r2) => setTimeout(r2, 600)); }
+        catch (e) { writeFileSync(join(dir, `${st.name}-js.json`), JSON.stringify({ error: (e as Error).message })); }
+      }
       for (const [name, w] of [["overlay", overlay], ["bigmap", bigmap]] as Array<[string, BrowserWindow | null]>) {
         if (!w || w.isDestroyed()) continue;
         try {

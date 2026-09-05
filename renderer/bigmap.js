@@ -4,13 +4,16 @@
  * 2 s was the v0.1 lag. */
 (function () {
   const $ = (id) => document.getElementById(id);
-  const LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["landmarks", "Places"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
+  const LAYERS = TM.LAYERS.filter((l) => !l[2] || l[2] === "bigmap");
   const STYLES = [["studio", "Light"], ["night", "Dark"]];
-  let snap = null, mapPayload = null, built = null, markers = L.layerGroup(), squadLayer = L.layerGroup(), meMarker = null, trailLine = null, followed = false, manualFloor = null;
+  let snap = null, mapPayload = null, questPayload = null, built = null, markers = L.layerGroup(), squadLayer = L.layerGroup(), meMarker = null, trailLine = null, followed = false, manualFloor = null;
   let distLabels = []; // {el, pos}
   let lastMarkersKey = "";
-  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad", "bosses"];
-  const on = () => new Set((snap && mapPayload && snap.settings.layers[mapPayload.def.key]) || defaultLayers);
+  let popupMarkers = []; // {layer, marker, id} — for the rail list and the capture hook
+  const on = () => (snap && mapPayload ? TM.layersOn(snap.settings, mapPayload.def.key) : new Set(TM.DEFAULT_LAYERS));
+  const questsHere = () => (questPayload && mapPayload && questPayload.mapKey === mapPayload.def.key ? questPayload : null);
+  const popupHandlers = { obj: (id, done) => window.api.markObjectiveDone(id, done), quest: (id, done) => window.api.markQuestDone(id, done), wiki: (u) => window.api.openUrl(u) };
+  const popupCtx = () => { const q = questsHere(); return { objectiveDone: q ? q.objectiveDone : {}, objectivesOf: (questId) => { const seen = new Set(); return (q ? q.all : []).filter((o) => o.questId === questId && !seen.has(o.objectiveId) && seen.add(o.objectiveId)); } }; };
 
   function baseChoice() {
     return snap.settings.mapBase === "re3mr" && mapPayload && mapPayload.re3mr ? "re3mr" : "vector";
@@ -76,21 +79,25 @@
     const f = mapPayload.features || {};
     const hasBoss = (f.spawns || []).some((sp) => (sp.categories || []).some((c) => /boss|rogue|cultist|raider/i.test(c)));
     // What each layer could draw right now — an empty chip must say so, or it reads as broken.
+    const qp = questsHere();
     const EMPTY = {
       extracts: !(f.extracts || []).some((e) => e.position), keys: !(f.locks || []).length, containers: !(f.lootContainers || []).length,
-      loot: !(f.lootContainers || []).length, guns: !(f.stationaryWeapons || []).length, switches: !(f.switches || []).length, hazards: !(f.hazards || []).length,
+      loot: !(mapPayload.loot && mapPayload.loot.points.length), guns: !(f.stationaryWeapons || []).length, switches: !(f.switches || []).length, hazards: !(f.hazards || []).length,
       bosses: !hasBoss, scavs: !(f.spawns || []).length, pmc: !(f.pmcSpawns || []).length, quests: !(snap.objectives || []).some((o) => o.position),
+      allquests: !(qp && qp.all.some((o) => o.position)), questitems: !(qp && qp.hasItemData && qp.items.length),
     };
-    const NEEDS_API = "no positions in the offline data — waiting for tarkov.dev (retrying every 15 min)";
+    const NEEDS_API = "no positions in the offline data — waiting for json.tarkov.dev (retrying every 15 min)";
+    const TITLES = { allquests: "every quest with a spot on this map, coloured by state: amber = accepted, white = not started, grey = needs earlier quests, green = done", questitems: qp && !qp.hasItemData ? "needs the item lists from json.tarkov.dev (not in the offline data)" : "items that accepted and future quests need, at the spots where they can spawn; hover or click for the quests" };
     const lay = $("layers");
     lay.innerHTML = "";
     for (const [id, label] of LAYERS) {
       const c = document.createElement("span");
       c.className = "chip" + (set.has(id) ? " on" : "");
       c.textContent = label;
+      if (TITLES[id]) c.title = TITLES[id];
       if (EMPTY[id]) {
         c.classList.add("empty");
-        c.title = id === "extracts" ? "extract names are listed below; " + NEEDS_API : id === "keys" ? "locked rooms are drawn on the floor plans; key names and door pins need tarkov.dev" : NEEDS_API;
+        c.title = id === "extracts" ? "extract names are listed below; " + NEEDS_API : id === "keys" ? "locked rooms are drawn on the floor plans; key names and door pins need json.tarkov.dev" : TITLES[id] || NEEDS_API;
         c.textContent = label + " · none yet";
       }
       c.onclick = () => { const s = on(); s.has(id) ? s.delete(id) : s.add(id); window.api.setLayers(mapPayload.def.key, [...s]); };
@@ -125,23 +132,28 @@
     $("heatLegend").style.display = snap.settings.lootHeat && heatReady ? "" : "none";
     $("flea").value = snap.settings.fleaMin;
     $("fleaVal").textContent = snap.settings.fleaMin ? snap.settings.fleaMin.toLocaleString() + " ₽" : "off";
-    const d = snap.data || {};
-    const missing = d.features === "missing" || d.tasks === "missing";
-    const offline = d.features === "offline" || d.tasks === "offline";
-    $("notice").style.display = missing || offline ? "" : "none";
-    if (missing) $("notice").textContent = `marker data not downloaded yet — tarkov.dev is down${d.lastError ? " (" + d.lastError + ")" : ""}; retrying every 15 min`;
-    else if (offline) { $("notice").textContent = "spawns, bosses and extract names come from the game's own data (offline). Extract pins, keys, containers and quest markers need tarkov.dev — retrying every 15 min."; $("notice").classList.add("soft"); }
+    $("qiWrap").style.display = set.has("questitems") ? "" : "none";
+    $("qi").value = snap.settings.questItemMin;
+    $("qiVal").textContent = snap.settings.questItemMin ? `${snap.settings.questItemMin}+` : "everything";
+    $("showDone").style.display = set.has("allquests") ? "" : "none";
+    $("showDone").className = "chip" + (snap.settings.showDoneQuests ? " on" : "");
+    const n = TM.dataNotice(snap.data);
+    $("notice").style.display = n.level ? "" : "none";
+    $("notice").textContent = n.text;
+    $("notice").classList.toggle("soft", n.level === "offline");
   }
 
   function addDist(pos, el) { if (el) distLabels.push({ el, pos }); }
 
   function paintMarkers() {
     if (!built || !snap || !mapPayload) return;
-    const key = JSON.stringify([[...on()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.fleaMin, snap.settings.lootHeat, currentFloor, Math.round(built.map.getZoom())]);
+    const qp = questsHere();
+    const key = JSON.stringify([[...on()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.fleaMin, snap.settings.lootHeat, currentFloor, Math.round(built.map.getZoom()), qp ? [qp.all.length, Object.keys(qp.objectiveDone).length, qp.items.length] : null, snap.settings.questItemMin, snap.settings.showDoneQuests]);
     if (key === lastMarkersKey) { updateDistances(); return; }
     lastMarkersKey = key;
     markers.clearLayers();
     distLabels = [];
+    popupMarkers = [];
     const def = mapPayload.def, f = mapPayload.features, set = on();
     const withDist = (icon, pos) => { const m = L.marker(TM.pos(pos.x, pos.z), { icon, interactive: false }); markers.addLayer(m); requestAnimationFrame(() => { const el = m.getElement(); const s = el && el.querySelector("small"); addDist(pos, s); }); return m; };
     if (set.has("landmarks")) {
@@ -157,12 +169,37 @@
       withDist(TM.pin(color, e.name, "…"), e.position);
       if (e.outline && e.outline.length >= 3) markers.addLayer(L.polygon(e.outline.map((p) => TM.pos(p.x, p.z)), { className: "tm-extract-outline", interactive: false }));
     }
-    if (set.has("quests")) for (const o of snap.objectives) {
-      if (!o.position) continue;
-      const m = L.marker(TM.pos(o.position.x, o.position.z), { icon: TM.portrait(o.trader.portrait, o.questName, "…"), interactive: false, zIndexOffset: 500 });
+    // Quests: accepted ones (amber) from the 2 s snapshot; every other quest on the map from the quest payload,
+    // coloured by state. Both kinds open the same popup (state, level, objectives with ticks, wiki).
+    const exOf = (objectiveId) => (qp ? qp.all.find((o) => o.objectiveId === objectiveId) : null);
+    const questMarker = (o, status, layer) => {
+      const ex = exOf(o.objectiveId) || o;
+      const m = L.marker(TM.pos(o.position.x, o.position.z), { icon: TM.portrait(o.trader.portrait, o.questName, layer === "quests" ? "…" : "", status), interactive: true, zIndexOffset: status === "active" ? 500 : 450 });
+      TM.bindQuestPopup(m, `${o.questName} · ${o.description}`, () => ({ ...ex, status }), popupCtx, popupHandlers);
       markers.addLayer(m);
-      requestAnimationFrame(() => { const el = m.getElement(); addDist(o.position, el && el.querySelector("small")); });
-      if (o.outline && o.outline.length >= 3) markers.addLayer(L.polygon(o.outline.map((p) => TM.pos(p.x, p.z)), { className: "tm-outline", interactive: false }));
+      popupMarkers.push({ layer, marker: m, id: o.objectiveId, questId: o.questId });
+      if (layer === "quests") requestAnimationFrame(() => { const el = m.getElement(); addDist(o.position, el && el.querySelector("small")); });
+      if (o.outline && o.outline.length >= 3) markers.addLayer(L.polygon(o.outline.map((p) => TM.pos(p.x, p.z)), { className: "tm-outline" + (status === "active" ? "" : " tm-outline-dim"), interactive: false }));
+    };
+    if (set.has("quests")) for (const o of snap.objectives) if (o.position) questMarker(o, "active", "quests");
+    if (set.has("allquests") && qp) {
+      const activeShown = new Set(set.has("quests") ? snap.objectives.map((o) => o.objectiveId) : []);
+      for (const o of qp.all) {
+        if (!o.position || activeShown.has(o.objectiveId)) continue;
+        if ((o.status === "done" || o.status === "failed") && !snap.settings.showDoneQuests) continue;
+        questMarker(o, o.status, "allquests");
+      }
+    }
+    if (set.has("questitems") && qp) {
+      const min = snap.settings.questItemMin || 0;
+      for (const it of qp.items) {
+        if (it.importance < min && !(it.kind === "questItem" && it.done)) continue;
+        const top = it.items[0] || {};
+        const m = L.marker(TM.pos(it.position.x, it.position.z), { icon: TM.itemIcon(top.icon, it.kind === "questItem" ? it.label : "", it.importance, it.kind === "questItem" ? "quest" : "item", it.done), interactive: true, zIndexOffset: 400 });
+        TM.bindQuestPopup(m, `${it.label} · ${[...new Set(it.items.flatMap((x) => x.quests.map((q) => q.questName)))].slice(0, 3).join(", ")}`, () => it, popupCtx, popupHandlers);
+        markers.addLayer(m);
+        popupMarkers.push({ layer: "questitems", marker: m, id: it.objectiveId || it.label, questId: it.questId || null });
+      }
     }
     if (f) {
       if (set.has("keys")) for (const k of f.locks || []) if (k.position) markers.addLayer(L.marker(TM.pos(k.position.x, k.position.z), { icon: TM.dot(TM.COLORS.key, k.key ? k.key.name.replace(/ key$/i, "") : "lock"), interactive: false }));
@@ -214,9 +251,25 @@
   function paintQuests() {
     const el = $("quests");
     if (!snap || !mapPayload) { el.innerHTML = ""; return; }
-    const by = new Map();
-    for (const o of snap.objectives) { const e = by.get(o.questId) || { name: o.questName, trader: o.trader, objs: [] }; e.objs.push(o); by.set(o.questId, e); }
-    el.innerHTML = [...by.entries()].map(([, q]) => `<div class="q"><img src="${q.trader.portrait}"><div><b>${TM.esc(q.name)}</b><span class="d">${TM.esc(q.trader.name)} · ${TM.esc((q.objs[0].description || "").slice(0, 50))}</span></div></div>`).join("") || `<div style="font-size:11px;color:var(--dim)">${snap.data && snap.data.tasks !== "missing" ? "no active quests on this map" : "quest data not downloaded yet"}</div>`;
+    const qp = questsHere();
+    const groups = { active: [], available: [], locked: [] };
+    const seen = new Set();
+    const src = qp ? qp.all : snap.objectives.map((o) => ({ ...o, status: "active" }));
+    for (const o of src) {
+      if (seen.has(o.questId) || !groups[o.status]) continue;
+      seen.add(o.questId);
+      const objs = src.filter((x) => x.questId === o.questId);
+      const ids = [...new Set(objs.map((x) => x.objectiveId))];
+      const done = qp ? ids.filter((id) => qp.objectiveDone[id]).length : 0;
+      groups[o.status].push({ id: o.questId, name: o.questName, trader: o.trader, objs, done, total: ids.length });
+    }
+    const row = (q, cls) => `<div class="q ${cls}" data-quest="${TM.esc(q.id)}"><img src="${q.trader.portrait}"><div><b>${TM.esc(q.name)}</b><span class="d">${TM.esc(q.trader.name)} · ${TM.esc((q.objs[0].description || "").slice(0, 44))}${q.total > 1 ? ` · ${q.done}/${q.total}` : ""}</span></div></div>`;
+    const section = (title, list, cls) => (list.length ? `<div class="qsec">${title} · ${list.length}</div>${list.map((q) => row(q, cls)).join("")}` : "");
+    el.innerHTML = section("Accepted", groups.active, "") + section("Not started", groups.available, "avail") + (groups.locked.length ? `<div class="qsec dimmer">${groups.locked.length} locked behind earlier quests</div>` : "") || `<div style="font-size:11px;color:var(--dim)">${snap.data && snap.data.tasks !== "missing" ? "no quests with a spot on this map" : "quest data not downloaded yet"}</div>`;
+    el.querySelectorAll("[data-quest]").forEach((r) => (r.onclick = () => {
+      const hit = popupMarkers.find((p) => p.questId === r.dataset.quest);
+      if (hit && built) { built.map.flyTo(hit.marker.getLatLng(), Math.max(built.map.getZoom(), 4)); setTimeout(() => hit.marker.openPopup(), 500); }
+    }));
   }
 
   function follow() {
@@ -248,9 +301,21 @@
     mapPayload = p;
     if (snap) { ensureMap(); paintControls(); if (built) paintMarkers(); paintQuests(); }
   }
+  function onQuests(q) {
+    questPayload = q;
+    if (snap && mapPayload) { paintControls(); if (built) { lastMarkersKey = ""; paintMarkers(); } paintQuests(); }
+  }
 
   $("flea").oninput = () => { $("fleaVal").textContent = Number($("flea").value) ? Number($("flea").value).toLocaleString() + " ₽" : "off"; };
   $("flea").onchange = () => window.api.saveSettings({ fleaMin: Number($("flea").value) });
+  $("qi").oninput = () => { $("qiVal").textContent = Number($("qi").value) ? `${$("qi").value}+` : "everything"; };
+  $("qi").onchange = () => window.api.saveSettings({ questItemMin: Number($("qi").value) });
+  $("showDone").onclick = () => window.api.saveSettings({ showDoneQuests: !snap.settings.showDoneQuests });
+  // Capture hook: counts and a way to open a popup without a mouse (see armSequenceCapture in main.ts).
+  window.TMDebug = {
+    counts: () => ({ markers: markers.getLayers().length, quests: popupMarkers.filter((p) => p.layer === "quests").length, allquests: popupMarkers.filter((p) => p.layer === "allquests").length, questitems: popupMarkers.filter((p) => p.layer === "questitems").length, all: questPayload ? questPayload.all.length : -1, items: questPayload ? questPayload.items.length : -1 }),
+    openPopup: (layer, i) => { const hit = popupMarkers.filter((p) => p.layer === layer)[i || 0]; if (!hit) return null; built.map.setView(hit.marker.getLatLng(), Math.max(built.map.getZoom(), 4), { animate: false }); hit.marker.openPopup(); const el = hit.marker.getPopup().getElement(); return el ? el.innerText : null; },
+  };
   $("ask").onkeydown = async (e) => {
     if (e.key !== "Enter") return;
     const text = $("ask").value.trim();
@@ -275,5 +340,6 @@
   document.addEventListener("visibilitychange", () => { if (!document.hidden && snap) onSnapshot(snap); });
   window.api.onSnapshot(onSnapshot);
   window.api.onMap(onMap);
-  window.api.getState().then((s) => { mapPayload = s.map; onSnapshot(s); });
+  window.api.onQuests(onQuests);
+  window.api.getState().then((s) => { mapPayload = s.map; questPayload = s.quests || null; onSnapshot(s); });
 })();

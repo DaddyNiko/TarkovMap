@@ -12,11 +12,11 @@
  * traced maps' deck names passed through `floorIds`. Pure DOM work on a parsed SVG; no network. */
 (function () {
   const PRESETS = {
-    studio: { name: "Studio", land: "#6f8a4c", trees: "#3e6a35", treeDot: "#2f5428", water: "#4f86b6", cement: "#cfc8bb", gravel: "#b39664", rock: "#c9c1a6",
+    studio: { name: "Light", land: "#6f8a4c", trees: "#3e6a35", treeDot: "#2f5428", water: "#4f86b6", cement: "#cfc8bb", gravel: "#b39664", rock: "#c9c1a6",
       roofs: ["#e0c9a0", "#d9b98a", "#e6d3b0", "#cdb48e"], side: "#8a6f4e", sideLit: "#a68662", roofEdge: "#5d4832",
       road: "#8f9399", roadCase: "#3b3f45", roadCenter: "#d8d8d0", rail: "#7a5a44", fence: "rgba(255,255,255,.45)", floor: "#e0c9a0", roomLine: "#7c6a4e",
       wall: "#4a3f34", stairs: "#2f9e4f", door: "#c98f2a", obstacle: "#9a8f80", depth: 4, tileFilter: "saturate(.75) contrast(1.15) brightness(1.08)" },
-    night: { name: "Night", land: "#232d27", trees: "#1b2f24", treeDot: "#12231a", water: "#1f3a56", cement: "#3f454d", gravel: "#3f3627", rock: "#3d3d38",
+    night: { name: "Dark", land: "#232d27", trees: "#1b2f24", treeDot: "#12231a", water: "#1f3a56", cement: "#3f454d", gravel: "#3f3627", rock: "#3d3d38",
       roofs: ["#3a4a5c", "#374559", "#40506a", "#33414f"], side: "#161d26", sideLit: "#243040", roofEdge: "#ffc45c",
       road: "#b9bcc2", roadCase: "#0b0d10", roadCenter: "#ffffff", rail: "#a0724f", fence: "rgba(255,196,92,.55)", floor: "#3a4a5c", roomLine: "#ffc45c",
       wall: "#ffc45c", stairs: "#6fdc7a", door: "#ffd27a", obstacle: "#4a525e", depth: 4, tileFilter: "brightness(.55) saturate(.35) hue-rotate(190deg)" },

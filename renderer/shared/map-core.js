@@ -5,6 +5,20 @@
 
   TM.RAID_MINUTES = { customs: 40, woods: 40, shoreline: 45, interchange: 40, reserve: 40, lighthouse: 40, "streets-of-tarkov": 45, "the-lab": 35, factory: 20, "ground-zero": 35, "the-labyrinth": 35, icebreaker: 40, terminal: 40 };
 
+  /** THE layer list — every surface reads this one. Third field = the only surface that offers the chip. */
+  TM.LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["allquests", "All quests"], ["questitems", "Quest items"], ["landmarks", "Places"], ["hud", "Distance text", "control"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
+  TM.DEFAULT_LAYERS = ["extracts", "quests", "landmarks", "hud", "squad", "bosses"];
+  TM.layersOn = (settings, mapKey) => new Set((settings && settings.layers && settings.layers[mapKey]) || TM.DEFAULT_LAYERS);
+  /** One wording for the state of the marker/quest data, used by every surface. */
+  TM.dataNotice = function (d) {
+    d = d || {};
+    const missing = d.features === "missing" || d.tasks === "missing";
+    const offline = d.features === "offline" || d.tasks === "offline";
+    const err = d.lastError ? ` (${d.lastError})` : "";
+    if (missing) return { level: "missing", text: `Marker and quest data are not downloaded yet${err} — trying json.tarkov.dev every 15 min.` };
+    if (offline) return { level: "offline", text: `Running on the game's own data (offline): spawns, bosses, extract and quest names only. Extract pins, keys, containers, loot and quest items arrive when json.tarkov.dev answers${err}; retrying every 15 min.` };
+    return { level: null, text: "" };
+  };
   /** Loot-value tiers, cold → hot. Fill only; the map stays readable underneath. */
   TM.HEAT_COLORS = ["#8a8f98", "#4caf50", "#f2c230", "#f28c28", "#e04848"];
   /** Square cells of expected loot value (see src/loot-value.ts) as one layer group. */
@@ -249,7 +263,56 @@
   TM.me = () => icon('<div class="tm-cone"></div><div class="tm-me"></div>', [0, 0], [0, 0]);
   TM.mate = (name, sub, color) => icon(`<div class="tm-mate" style="border-bottom-color:${color || TM.COLORS.squad}"></div><div class="tm-lbl" style="color:${color || TM.COLORS.squad}">${esc(name)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`, [0, 0], [0, 0]);
   TM.ping = (text, who) => icon(`<div class="tm-ping"></div><div class="tm-lbl" style="color:${TM.COLORS.ping}">${esc(text)}${who ? `<small>${esc(who)}</small>` : ""}</div>`, [0, 0], [0, 0]);
-  TM.portrait = (url, label, sub) => icon(`<img class="tm-av" src="${url}" onerror="this.style.display='none'"><div class="tm-lbl">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`, [26, 26], [13, 13]);
+  TM.portrait = (url, label, sub, status) => icon(`<img class="tm-av${status ? " tm-av-" + status : ""}" src="${url}" onerror="this.style.display='none'"><div class="tm-lbl">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`, [26, 26], [13, 13]);
+  /** A quest item: the item's own icon with an importance badge; tone "quest" = a quest-specific world item, "item" = an ordinary needed item. */
+  TM.itemIcon = (iconUrl, label, importance, tone, done) => icon(`<div class="tm-item tm-item-${tone || "item"}${done ? " tm-item-done" : ""}">${iconUrl ? `<img src="${iconUrl}" onerror="this.style.display='none'">` : ""}<i class="tm-imp">${Math.round(importance || 0)}</i></div>${label ? `<div class="tm-lbl tm-lbl-item">${esc(label)}</div>` : ""}`, [24, 24], [12, 12]);
+
+  const STATE_WORD = { active: "accepted", available: "not started", locked: "needs earlier quests", done: "done", failed: "failed" };
+  /** The popup for a quest objective (MapObjectiveEx) or a quest-item marker (QuestItemMarker). Strings are escaped; buttons carry data-act. */
+  TM.questPopupHtml = function (entry, ctx) {
+    ctx = ctx || {};
+    const objDone = ctx.objectiveDone || {};
+    const questLine = (q) => {
+      const st = q.status || "available";
+      const objs = (ctx.objectivesOf ? ctx.objectivesOf(q.questId) : []) || [];
+      const objHtml = objs.length ? `<div class="objs">${objs.map((o) => `<div class="obj${objDone[o.objectiveId] ? " done" : ""}${o.optional ? " opt" : ""}"><span class="tick" data-act="obj" data-id="${esc(o.objectiveId)}" data-done="${objDone[o.objectiveId] ? "1" : "0"}">${objDone[o.objectiveId] ? "☑" : "☐"}</span><span>${esc(o.description)}${o.count > 1 ? ` ×${o.count}` : ""}${o.foundInRaid ? " · FIR" : ""}${o.optional ? " · optional" : ""}</span></div>`).join("")}</div>` : "";
+      const lvl = q.minPlayerLevel ? `<span class="pill lvl">level ${q.minPlayerLevel}+</span>` : "";
+      return `<div class="qh"><img src="${esc(q.trader.portrait)}" onerror="this.style.display='none'"><div><b>${esc(q.questName)}</b><span class="d">${esc(q.trader.name)}</span></div></div>
+        <div class="pills"><span class="pill ${esc(st)}">${STATE_WORD[st] || st}</span>${lvl}${q.kappaRequired ? `<span class="pill kappa">Kappa</span>` : ""}</div>
+        ${objHtml}
+        <div class="acts"><button data-act="quest" data-id="${esc(q.questId)}" data-done="${st === "done" ? "1" : "0"}">${st === "done" ? "Undo done" : "Mark quest done"}</button>${q.wikiLink ? `<button data-act="wiki" data-url="${esc(q.wikiLink)}">Wiki</button>` : ""}</div>`;
+    };
+    if (entry.kind === "item" || entry.kind === "questItem") {
+      const items = entry.items || [];
+      const byQuest = (qs) => { const seen = new Set(); return (qs || []).filter((q) => !seen.has(q.questId) && seen.add(q.questId)); };
+      return `<div class="tm-pop-body">${items.map((it) => `<div class="it"><img src="${esc(it.icon || "")}" onerror="this.style.display='none'"><div><b>${esc(it.name)}</b><span class="d">${it.count > 1 ? `×${it.count} · ` : ""}${it.fir ? "found in raid" : "any"}${it.price ? ` · ${it.price >= 1000 ? Math.round(it.price / 1000) + "k" : it.price} ₽` : ""}${entry.kind === "item" ? ` · ${it.spawnPointsOnMap} spot${it.spawnPointsOnMap === 1 ? "" : "s"} on this map` : " · lies here"}</span></div><i class="tm-imp">${Math.round(it.importance)}</i></div>${byQuest(it.quests).map(questLine).join("")}`).join("<hr>")}
+        <div class="note">${entry.kind === "item" ? "A spawn spot, not what spawned. " : ""}Started / finished come from the game's notifications; your level isn't in the logs.</div></div>`;
+    }
+    // a quest objective marker
+    const q = { questId: entry.questId, questName: entry.questName, trader: entry.trader, status: entry.status, minPlayerLevel: entry.minPlayerLevel, wikiLink: entry.wikiLink, kappaRequired: entry.kappaRequired };
+    return `<div class="tm-pop-body"><div class="here"><span class="tick" data-act="obj" data-id="${esc(entry.objectiveId)}" data-done="${objDone[entry.objectiveId] ? "1" : "0"}">${objDone[entry.objectiveId] ? "☑" : "☐"}</span> ${esc(entry.description)}${entry.item ? ` — ${esc(entry.item.name)}${entry.item.count > 1 ? " ×" + entry.item.count : ""}` : ""}</div>${questLine(q)}<div class="note">Visit and extract objectives tick themselves from your position; item counts aren't in the logs — tick those by hand.</div></div>`;
+  };
+  /** Sticky tooltip + lazy popup on a marker; data-act buttons inside the popup call the handlers. */
+  TM.bindQuestPopup = function (marker, short, entryFn, ctxFn, handlers) {
+    if (short) marker.bindTooltip(short, { direction: "top", sticky: true, opacity: 0.95, className: "tm-tip" });
+    marker.bindPopup(() => TM.questPopupHtml(entryFn(), ctxFn ? ctxFn() : {}), { className: "tm-pop", maxWidth: 360, minWidth: 260, autoPan: true, closeButton: true });
+    marker.on("popupopen", (e) => {
+      const el = e.popup.getElement();
+      if (!el) return;
+      el.querySelectorAll("[data-act]").forEach((b) => {
+        b.onclick = (ev) => {
+          ev.stopPropagation();
+          const act = b.dataset.act;
+          if (act === "obj" && handlers.obj) handlers.obj(b.dataset.id, b.dataset.done !== "1");
+          else if (act === "quest" && handlers.quest) handlers.quest(b.dataset.id, b.dataset.done !== "1");
+          else if (act === "wiki" && handlers.wiki) handlers.wiki(b.dataset.url);
+          if (act !== "wiki") setTimeout(() => { if (marker.isPopupOpen()) marker.getPopup().setContent(TM.questPopupHtml(entryFn(), ctxFn ? ctxFn() : {})); }, 250);
+        };
+      });
+    });
+    return marker;
+  };
+
 
   function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
   TM.esc = esc;

@@ -5,7 +5,8 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const MODE = new URLSearchParams(location.search).get("mode") === "tags" ? "tags" : "hud";
-  let snap = null, mapPayload = null;
+  let snap = null, mapPayload = null, questPayload = null;
+  const questsHere = () => (questPayload && mapPayload && questPayload.mapKey === mapPayload.def.key ? questPayload : null);
   let built = null; // {map, setFloor, key, base}
   let markers = L.layerGroup();
   let squadLayer = L.layerGroup();
@@ -15,8 +16,7 @@
   let lastLayersKey = "";
 
   const RAID_MIN = TM.RAID_MINUTES;
-  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad", "bosses"];
-  const onLayers = () => new Set((snap && mapPayload && snap.settings.layers[mapPayload.def.key]) || defaultLayers);
+  const onLayers = () => (snap && mapPayload ? TM.layersOn(snap.settings, mapPayload.def.key) : new Set(TM.DEFAULT_LAYERS));
 
   // ── HUD layout (window is already sized to the region by main) ─────────
   function layout() {
@@ -92,7 +92,8 @@
 
   function paintMarkers() {
     if (!built || !snap || !mapPayload) return;
-    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests, snap.floor, snap.settings.fleaMin, snap.settings.lootHeat]);
+    const qp = questsHere();
+    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests, snap.floor, snap.settings.fleaMin, snap.settings.lootHeat, snap.settings.questItemMin, snap.settings.showDoneQuests, qp ? [qp.all.length, Object.keys(qp.objectiveDone).length, qp.items.length] : null]);
     if (key === lastLayersKey) return;
     lastLayersKey = key;
     markers.clearLayers();
@@ -108,8 +109,21 @@
     }
     if (s.showQuests && on.has("quests")) for (const o of snap.objectives) {
       if (!o.position) continue;
-      markers.addLayer(L.marker(TM.pos(o.position.x, o.position.z), { icon: TM.portrait(o.trader.portrait, o.questName), interactive: false, zIndexOffset: 500 }));
+      markers.addLayer(L.marker(TM.pos(o.position.x, o.position.z), { icon: TM.portrait(o.trader.portrait, o.questName, "", "active"), interactive: false, zIndexOffset: 500 }));
       if (o.outline && o.outline.length >= 3) markers.addLayer(L.polygon(o.outline.map((p) => TM.pos(p.x, p.z)), { className: "tm-outline", interactive: false }));
+    }
+    if (s.showQuests && on.has("allquests") && qp) {
+      const shown = new Set(on.has("quests") ? snap.objectives.map((o) => o.objectiveId) : []);
+      for (const o of qp.all) {
+        if (!o.position || shown.has(o.objectiveId) || o.status === "active") continue;
+        if ((o.status === "done" || o.status === "failed") && !s.showDoneQuests) continue;
+        markers.addLayer(L.marker(TM.pos(o.position.x, o.position.z), { icon: TM.portrait(o.trader.portrait, o.questName, "", o.status), interactive: false, zIndexOffset: 450 }));
+      }
+    }
+    if (on.has("questitems") && qp) for (const it of qp.items) {
+      if (it.importance < (s.questItemMin || 0)) continue;
+      const top = it.items[0] || {};
+      markers.addLayer(L.marker(TM.pos(it.position.x, it.position.z), { icon: TM.itemIcon(top.icon, it.kind === "questItem" ? it.label : "", it.importance, it.kind === "questItem" ? "quest" : "item", it.done), interactive: false, zIndexOffset: 400 }));
     }
     if (f) {
       if (on.has("keys")) for (const k of f.locks || []) if (k.position) markers.addLayer(L.marker(TM.pos(k.position.x, k.position.z), { icon: TM.dot(TM.COLORS.key, k.key ? k.key.name.replace(/ key$/i, "") : ""), interactive: false }));
@@ -211,12 +225,15 @@
           const nearest = q.objs.filter((o) => o.position && fix).map((o) => TM.dist(fix, o.position)).sort((a, b) => a - b)[0];
           const el = document.createElement("div");
           el.className = "q";
-          el.innerHTML = `<img src="${q.trader.portrait}"><div><b>${TM.esc(q.name)}</b><span class="d">${TM.esc(q.trader.name)} · ${TM.esc((q.objs[0].description || "").slice(0, 60))}</span></div>${nearest != null ? `<span class="m">${Math.round(nearest)}<em>m</em></span>` : ""}`;
+          const qp = questsHere();
+          const ids = [...new Set(q.objs.map((o) => o.objectiveId))];
+          const done = qp ? ids.filter((i) => qp.objectiveDone[i]).length : 0;
+          el.innerHTML = `<img src="${q.trader.portrait}"><div><b>${TM.esc(q.name)}</b><span class="d">${TM.esc(q.trader.name)} · ${TM.esc((q.objs[0].description || "").slice(0, 60))}${ids.length > 1 ? ` · ${done}/${ids.length}` : done ? " · ✓" : ""}</span></div>${nearest != null ? `<span class="m">${Math.round(nearest)}<em>m</em></span>` : ""}`;
           el.title = id;
           qEl.appendChild(el);
         }
       } else if (snap.data && snap.data.tasks === "missing") {
-        qEl.innerHTML = `<div class="h4">Quests here</div><div class="row"><span class="d">quest data not downloaded yet (tarkov.dev down)</span></div>`;
+        qEl.innerHTML = `<div class="h4">Quests here</div><div class="row"><span class="d">quest data not downloaded yet</span></div>`;
       }
     }
     if (s.showHudText && mapPayload) {
@@ -310,5 +327,6 @@
   }
   window.api.onSnapshot(onSnapshot);
   window.api.onMap(onMap);
-  window.api.getState().then((s) => { mapPayload = s.map; onSnapshot(s); });
+  window.api.onQuests((q) => { questPayload = q; if (snap && mapPayload && built) { lastLayersKey = ""; paintMarkers(); paintPanel(); } });
+  window.api.getState().then((s) => { mapPayload = s.map; questPayload = s.quests || null; onSnapshot(s); });
 })();

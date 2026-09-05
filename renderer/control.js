@@ -3,10 +3,10 @@
   const $ = (id) => document.getElementById(id);
   const KEYS = ["F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PrintScreen","ScrollLock","Pause","Insert","Home","PageUp","PageDown","End","Delete","CapsLock","Tab","Numpad0","Numpad1","Numpad2","Numpad3","Numpad4","Numpad5","Numpad6","Numpad7","Numpad8","Numpad9","NumpadMultiply","NumpadAdd","NumpadSubtract","NumpadDecimal","NumpadDivide","Mouse3","Mouse4","Mouse5"];
   const HOLD = ["CapsLock","LeftShift","LeftCtrl","LeftAlt","RightAlt","Tab","Mouse4","Mouse5","Mouse3","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","Numpad0"];
-  const LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["landmarks", "Places"], ["hud", "Distance text"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
+  const LAYERS = TM.LAYERS;
   const STYLES = [["studio", "Light"], ["night", "Dark"]];
-  const SLIDERS = ["mapOpacity", "overlayScale", "panelOpacity", "minimapSize", "followZoom", "margin", "gameFov", "fleaMin", "extrudeDepth"];
-  let snap = null, mapPayload = null;
+  const SLIDERS = ["mapOpacity", "overlayScale", "panelOpacity", "minimapSize", "followZoom", "margin", "gameFov", "fleaMin", "extrudeDepth", "questItemMin"];
+  let snap = null, mapPayload = null, questPayload = null;
   let dirtySetup = false;
 
   for (const k of KEYS) $("screenshotKey").add(new Option(k, k));
@@ -21,7 +21,7 @@
   }
   document.querySelectorAll("[data-go]").forEach((a) => (a.onclick = () => document.getElementById(a.dataset.go).scrollIntoView({ behavior: "smooth", block: "start" })));
 
-  const fmtV = (id, v) => id === "fleaMin" ? (v ? Number(v).toLocaleString() + " ₽" : "off") : id === "minimapSize" || id === "margin" ? `${v} px` : id === "gameFov" ? `${v}°` : id === "followZoom" ? `${Number(v).toFixed(2)}` : id === "extrudeDepth" ? `${v}` : `${Math.round(v * 100)}%`;
+  const fmtV = (id, v) => id === "fleaMin" ? (v ? Number(v).toLocaleString() + " ₽" : "off") : id === "questItemMin" ? (Number(v) ? `${v}+` : "everything") : id === "minimapSize" || id === "margin" ? `${v} px` : id === "gameFov" ? `${v}°` : id === "followZoom" ? `${Number(v).toFixed(2)}` : id === "extrudeDepth" ? `${v}` : `${Math.round(v * 100)}%`;
   for (const id of SLIDERS) {
     $(id).oninput = () => ($(id + "V").textContent = fmtV(id, $(id).value));
     $(id).onchange = () => window.api.saveSettings({ [id]: Number($(id).value) });
@@ -81,7 +81,7 @@
   $("ask").onkeydown = async (e) => {
     if (e.key !== "Enter" || !snap || !mapPayload) return;
     const r = await window.api.filterPrompt($("ask").value.trim());
-    const s = new Set(snap.settings.layers[mapPayload.def.key] || ["extracts", "quests", "landmarks", "hud", "squad"]);
+    const s = TM.layersOn(snap.settings, mapPayload.def.key);
     for (const id of r.off || []) s.delete(id);
     for (const id of r.on || []) s.add(id);
     await window.api.setLayers(mapPayload.def.key, [...s]);
@@ -123,14 +123,18 @@
     document.querySelectorAll("[data-tog]").forEach((c) => c.classList.toggle("on", Boolean(snap.settings[c.dataset.tog])));
     $("log").textContent = snap.log.join("\n");
     $("log").scrollTop = $("log").scrollHeight;
+    const n = TM.dataNotice(snap.data);
+    for (const id of ["dataNotice", "layerNotice", "questNotice"]) { $(id).style.display = n.level ? "" : "none"; $(id).textContent = n.text; }
+    $("ver").textContent = snap.version ? "v" + snap.version : "";
+    paintDataSource();
+  }
+
+  function paintDataSource() {
     const d = snap.data || {};
-    const missing = d.features === "missing" || d.tasks === "missing";
-    const offline = d.features === "offline" || d.tasks === "offline";
-    for (const id of ["dataNotice", "layerNotice", "questNotice"]) {
-      $(id).style.display = missing || offline ? "" : "none";
-      if (missing) $(id).textContent = `Marker and quest data from tarkov.dev is not downloaded yet${d.lastError ? " (" + d.lastError + ")" : ""}. Retrying every 15 minutes${d.nextRetryAt ? ", next at " + new Date(d.nextRetryAt).toLocaleTimeString() : ""}.`;
-      else if (offline) $(id).textContent = `Scav, PMC and boss spawns, extract names and quest names come from the game's own data (offline snapshot). Extract pins, keys, containers, loot value and quest markers need tarkov.dev, which is down${d.lastError ? " (" + d.lastError + ")" : ""}; retrying every 15 minutes.`;
-    }
+    const word = (k) => d[k] === "ok" ? "json.tarkov.dev, fresh" : d[k] === "cached" ? "json.tarkov.dev, from the cache" : d[k] === "offline" ? "the game's own data (offline snapshot)" : "not downloaded yet";
+    $("dsMarkers").textContent = word("features");
+    $("dsQuests").textContent = word("tasks");
+    $("dsSub").textContent = (d.lastError ? `last error: ${d.lastError}. ` : "") + (d.nextRetryAt ? `next retry at ${new Date(d.nextRetryAt).toLocaleTimeString()}. ` : "") + `${snap.activeQuestCount} accepted quests in your log · ${snap.questProgressCount || 0} objectives ticked.`;
   }
 
   function paintMapPage() {
@@ -161,7 +165,7 @@
     const el = $("layerChips");
     el.innerHTML = "";
     if (!mapPayload) { el.innerHTML = '<span class="k">pick a map first</span>'; return; }
-    const set = new Set(snap.settings.layers[mapPayload.def.key] || ["extracts", "quests", "landmarks", "hud", "squad"]);
+    const set = TM.layersOn(snap.settings, mapPayload.def.key);
     for (const [id, label] of LAYERS) {
       const c = document.createElement("span");
       c.className = "chip" + (set.has(id) ? " on" : "");
@@ -180,22 +184,49 @@
     el.innerHTML = mates.length ? mates.map((m) => `<div class="row"><span class="g" style="background:${TM.COLORS.squad}"></span><span>${TM.esc(m.name)}</span><span class="d">${m.floor || ""} ${m.moving ? "moving" : "still"} ${m.flag ? "· " + TM.esc(m.flag) : ""} · ${Math.round((Date.now() - m.at) / 1000)} s ago</span>${snap.fix ? `<span class="m">${Math.round(TM.dist(snap.fix, m))}<em>m</em></span>` : ""}</div>`).join("") : `<div class="k">${snap.settings.squadEnabled ? "nobody sharing yet — same code, same raid, same network" : "sharing is off"}</div>`;
   }
 
+  let questsPainting = false;
   async function paintQuests() {
-    const list = await window.api.listQuests();
-    const el = $("questList");
-    if (!list.length) { el.innerHTML = `<div class="k">${snap && snap.data && snap.data.tasks === "missing" ? "quest names and objectives need tarkov.dev, which is down right now" : `${snap ? snap.activeQuestCount : 0} active quests in your log, none matched to quest data`}</div>`; return; }
-    el.innerHTML = "";
-    for (const q of list) {
-      const row = document.createElement("div");
-      row.className = "qrow";
-      row.style.opacity = q.done ? ".45" : "1";
-      row.innerHTML = `<img src="https://assets.tarkov.dev/${q.trader.id}.webp"><div class="n"><b>${TM.esc(q.name)}</b><span>${TM.esc(q.trader.name)}${q.map ? " · " + TM.esc(q.map) : ""} · ${q.objectives.map((o) => TM.esc(o.description)).join(" · ").slice(0, 160)}</span></div>`;
-      const b = document.createElement("button");
-      b.textContent = q.done ? "Undo" : "Mark done";
-      b.onclick = () => window.api.markQuestDone(q.id, !q.done).then(paintQuests);
-      row.appendChild(b);
-      el.appendChild(row);
-    }
+    if (questsPainting) return;
+    questsPainting = true;
+    try {
+      const list = await window.api.listQuests();
+      const el = $("questList");
+      if (!list.length) { el.innerHTML = `<div class="k">${snap && snap.data && snap.data.tasks === "missing" ? "quest names and objectives are not downloaded yet" : "no quest data"}</div>`; return; }
+      const STATE = { active: "Accepted", available: "Not started", locked: "Locked behind earlier quests", done: "Done", failed: "Failed" };
+      const groups = { active: [], available: [], locked: [], done: [], failed: [] };
+      for (const q of list) (groups[q.state] || groups.available).push(q);
+      const showDone = snap && snap.settings.showDoneQuests;
+      el.innerHTML = "";
+      for (const st of ["active", "available", "locked", "done", "failed"]) {
+        const list2 = groups[st];
+        if (!list2.length) continue;
+        const h = document.createElement("div");
+        h.className = "qsec";
+        h.textContent = `${STATE[st]} · ${list2.length}`;
+        el.appendChild(h);
+        if ((st === "done" || st === "failed") && !showDone) { const k = document.createElement("div"); k.className = "k"; k.textContent = "hidden — switch on \"show finished\" on the Layers page to list them"; el.appendChild(k); continue; }
+        if (st === "locked") { const k = document.createElement("div"); k.className = "k"; k.textContent = list2.slice(0, 40).map((q) => q.name).join(" · ") + (list2.length > 40 ? ` · +${list2.length - 40} more` : ""); el.appendChild(k); continue; }
+        for (const q of list2) {
+          const row = document.createElement("div");
+          row.className = "qrow" + (st === "done" ? " done" : "");
+          const objs = q.objectives.map((o) => `<label class="obj${o.done ? " done" : ""}"><input type="checkbox" data-obj="${TM.esc(o.id)}" ${o.done ? "checked" : ""}> ${TM.esc(o.description)}${o.optional ? " (optional)" : ""}${o.maps.length ? ` <em>${TM.esc(o.maps.join(", "))}</em>` : ""}</label>`).join("");
+          row.innerHTML = `<img src="${TM.esc(q.trader.portrait)}"><div class="n"><b>${TM.esc(q.name)}</b><span>${TM.esc(q.trader.name)}${q.map ? " · " + TM.esc(q.map) : ""}${q.minPlayerLevel ? " · level " + q.minPlayerLevel + "+" : ""}${q.kappaRequired ? " · Kappa" : ""}</span><div class="objs">${objs}</div></div>`;
+          const b = document.createElement("button");
+          b.textContent = st === "done" ? "Undo" : "Mark done";
+          b.onclick = () => window.api.markQuestDone(q.id, st !== "done").then(() => { questsPainting = false; paintQuests(); });
+          row.appendChild(b);
+          if (q.wikiLink) { const w = document.createElement("button"); w.textContent = "Wiki"; w.onclick = () => window.api.openUrl(q.wikiLink); row.appendChild(w); }
+          row.querySelectorAll("[data-obj]").forEach((cb) => (cb.onchange = () => window.api.markObjectiveDone(cb.dataset.obj, cb.checked)));
+          el.appendChild(row);
+        }
+      }
+    } finally { questsPainting = false; }
+  }
+  let questsKey = "";
+  function questsMaybeRepaint() {
+    if (!snap || !$("s-quests").classList.contains("on")) return;
+    const k = JSON.stringify([snap.activeQuestCount, snap.questProgressCount, snap.settings.manualDone, snap.settings.showDoneQuests, snap.data && snap.data.tasks]);
+    if (k !== questsKey) { questsKey = k; paintQuests(); }
   }
 
   function paintSetup() {
@@ -231,7 +262,10 @@
     paintLayers();
     paintSquad();
     paintSetup();
+    questsMaybeRepaint();
   }
+  $("bRefreshData").onclick = () => { window.api.refreshData(); $("dsSub").textContent = "refreshing…"; };
+  $("bRescan").onclick = async () => { const r = await window.api.rescanQuests(); $("dsSub").textContent = `re-scanned: ${r.known} quests known, ${r.active} accepted`; };
 
   // ── Align tool ──────────────────────────────────────────────────────────
   const align = (() => {
@@ -317,6 +351,7 @@
 
   window.api.onSnapshot((s) => { snap = s; paintAll(); });
   window.api.onMap((m) => { mapPayload = m; if (snap) { paintMapPage(); paintLayers(); } });
+  window.api.onQuests((q) => { questPayload = q; questsKey = ""; questsMaybeRepaint(); });
   window.api.onLog((l) => { if (!snap) return; snap.log.push(l); if (snap.log.length > 60) snap.log.shift(); $("log").textContent = snap.log.join("\n"); $("log").scrollTop = $("log").scrollHeight; });
   window.api.onTick((t) => { if (snap) { snap.screenshots = t.screenshots; $("rShots").textContent = `${t.screenshots.files} files · ${(t.screenshots.bytes / 1048576).toFixed(1)} MB`; if (snap.fix) $("rFeedSub").textContent = `${Math.round((t.now - snap.fix.at) / 1000)} s ago · mode: ${snap.settings.mode}`; } });
   window.api.getState().then((s) => { snap = s; mapPayload = s.map; paintAll(); const page = location.hash.slice(1); if (page && $("s-" + page)) show(page); else if (!s.settings.setupDone) show("setup"); });

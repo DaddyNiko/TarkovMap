@@ -5,7 +5,7 @@
  * emit the same structure. The model only ever sees the sentence.
  */
 
-export const LAYER_IDS = ["extracts", "quests", "landmarks", "hud", "keys", "bosses", "scavs", "hazards", "loot", "squad", "containers", "switches", "guns"] as const;
+export const LAYER_IDS = ["extracts", "quests", "allquests", "questitems", "landmarks", "hud", "keys", "bosses", "scavs", "pmc", "hazards", "loot", "squad", "containers", "switches", "guns"] as const;
 export type LayerId = (typeof LAYER_IDS)[number];
 
 export interface FilterIntent {
@@ -21,6 +21,9 @@ export interface FilterIntent {
 const SYNONYMS: Record<LayerId, string[]> = {
   extracts: ["extract", "extracts", "exfil", "exit", "exits", "extraction"],
   quests: ["quest", "quests", "task", "tasks", "objective", "objectives"],
+  allquests: ["all quests", "every quest", "future quests", "locked quests", "all tasks", "every task"],
+  questitems: ["quest items", "quest item", "items for quests", "quest loot", "fir items", "items to pick up", "pick up"],
+  pmc: ["pmc spawns", "pmc spawn", "player spawns", "pmcs"],
   landmarks: ["landmark", "landmarks", "place", "places", "name", "names", "label", "labels"],
   hud: ["hud", "distance", "distances", "text", "meters", "metres"],
   keys: ["key", "keys", "door", "doors", "lock", "locks", "locked"],
@@ -37,13 +40,22 @@ const SYNONYMS: Record<LayerId, string[]> = {
 const MONEY_RE = /(?:over|above|at least|min(?:imum)?|>=?|worth|more than)\s*(\d+(?:[.,]\d+)?)\s*(k|m|thousand|million)?|(\d+(?:[.,]\d+)?)\s*(k|m)\b/i;
 
 export function parseFilterPrompt(text: string): FilterIntent {
-  const t = text.toLowerCase().trim();
+  let t = text.toLowerCase().trim();
   const on: LayerId[] = [];
   const off: LayerId[] = [];
   let understood = false;
+  // Multi-word layers first, and the phrase leaves the sentence so "all quests" is not also "all" + "quests".
+  const hideModeEarly = /\b(hide|remove|without|no|off|clear)\b/.test(t) && !/\b(show|display|add)\b/.test(t);
+  for (const id of ["allquests", "questitems", "pmc"] as const) {
+    for (const w of SYNONYMS[id]) {
+      const re = new RegExp(`\\b${w.replace(/ /g, "\\s+")}\\b`);
+      if (re.test(t)) { understood = true; (hideModeEarly ? off : on).push(id); t = t.replace(re, " "); break; }
+    }
+  }
   const hideMode = /\b(hide|remove|without|no|off|clear)\b/.test(t);
   const onlyMode = /\b(only|just)\b/.test(t);
   for (const id of LAYER_IDS) {
+    if (on.includes(id) || off.includes(id)) continue;
     if (SYNONYMS[id].some((w) => new RegExp(`\\b${w.replace(/ /g, "\\s+")}\\b`).test(t))) {
       understood = true;
       (hideMode && !/\b(show|display|add)\b/.test(t) ? off : on).push(id);

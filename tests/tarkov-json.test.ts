@@ -73,26 +73,33 @@ describe("convertJsonTasks", () => {
         tasks: {
           q1: {
             id: "q1", name: "q1 name", trader: "t1", map: "56f40101d2720b2a4d8b45d6", minPlayerLevel: 3,
+            taskRequirements: [{ task: "q0", status: ["complete"] }], wikiLink: "https://w/Debut", kappaRequired: true, neededKeys: [{ map: "56f40101d2720b2a4d8b45d6", keys: ["5da743f586f7744014504f72"] }],
             objectives: [
               { id: "c1", description: "c1", type: "visit", zones: [{ id: "z", map: "56f40101d2720b2a4d8b45d6", position: { x: 1, y: 2, z: 3 }, outline: [{ x: 0, y: 0, z: 0 }] }] },
               { id: "c2", description: "c2", type: "findQuestItem", count: 1, questItem: "qi1", possibleLocations: [{ map: "nf", positions: [{ x: 4, y: 5, z: 6 }, { x: 7, y: 8, z: 9 }] }] },
-              { id: "c3", description: "c3", type: "giveItem", count: 3, items: ["590c695186f7741e566b64a2", "other"] },
+              { id: "c3", description: "c3", type: "giveItem", count: 3, items: ["590c695186f7741e566b64a2", "other"], foundInRaid: true, optional: false },
             ],
           },
           q2: { id: "q2", name: "q2 name", map: null, objectives: [] },
+          q3: { id: "000000000000000000000003", name: "000000000000000000000003 name", wikiLink: "https://escapefromtarkov.fandom.com/wiki/Health_Care_Privacy_-_Part_2", map: null, objectives: [] },
+          q4: { id: "000000000000000000000004", name: "000000000000000000000004 name", normalizedName: "shooting-cans", map: null, objectives: [] },
         },
         questItems: { qi1: { name: "qi1 Name" } },
       },
     };
     const out = convertJsonTasks(tasks, { "56f40101d2720b2a4d8b45d6": "customs", nf: "factory" }, names);
-    expect(out[0]).toMatchObject({ id: "q1", name: "Debut", trader: { id: "t1", name: "Prapor" }, map: { normalizedName: "customs" }, minPlayerLevel: 3 });
+    expect(out[0]).toMatchObject({ id: "q1", name: "Debut", trader: { id: "t1", name: "Prapor" }, map: { normalizedName: "customs" }, minPlayerLevel: 3, taskRequirements: [{ task: "q0", status: ["complete"] }], wikiLink: "https://w/Debut", kappaRequired: true, neededKeys: [{ map: "customs", keys: ["USEC stash key"] }] });
+    expect(out[0].objectives[2]).toMatchObject({ items: ["590c695186f7741e566b64a2", "other"], foundInRaid: true, optional: false });
+    expect(out[0].objectives[1].questItem).toMatchObject({ id: "qi1" });
     expect(out[0].objectives[0]).toMatchObject({ id: "c1", type: "visit", description: "Locate the Emercom station", maps: [{ normalizedName: "customs" }] });
     expect(out[0].objectives[0].zones).toEqual([{ position: { x: 1, y: 2, z: 3 }, outline: [{ x: 0, y: 0, z: 0 }], map: { normalizedName: "customs" } }]);
     expect(out[0].objectives[1].zones).toHaveLength(2);
     expect(out[0].objectives[1].maps).toEqual([{ normalizedName: "factory" }]);
-    expect(out[0].objectives[1].questItem).toEqual({ name: "Qi1 Name" });
+    expect(out[0].objectives[1].questItem).toEqual({ name: "Qi1 Name", id: "qi1" });
     expect(out[0].objectives[2]).toMatchObject({ item: { name: "Salewa", iconLink: "https://assets.tarkov.dev/590c695186f7741e566b64a2-icon.webp" }, count: 3, maps: [{ normalizedName: "customs" }], description: "giveItem" });
     expect(out[1]).toMatchObject({ id: "q2", name: "Q2 name", map: null, trader: { id: "", name: "" } });
+    expect(out[2].name).toBe("Health Care Privacy - Part 2");
+    expect(out[3].name).toBe("Shooting cans");
   });
 });
 

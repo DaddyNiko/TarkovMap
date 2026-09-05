@@ -44,6 +44,10 @@ export interface Settings {
   fleaMin: number;
   /** Colour the map by how valuable the loot that can spawn there is (possible loot, never what spawned). */
   lootHeat: boolean;
+  /** Quest-items layer: only items scoring at least this (0 = everything). */
+  questItemMin: number;
+  /** All-quests layer: also draw finished / failed quests. */
+  showDoneQuests: boolean;
   /** Squad */
   playerName: string;
   squadCode: string;
@@ -119,6 +123,8 @@ export const DEFAULT_SETTINGS: Settings = {
   layers: {},
   fleaMin: 0,
   lootHeat: false,
+  questItemMin: 8,
+  showDoneQuests: false,
   playerName: "",
   squadCode: "",
   squadEnabled: false,
@@ -161,6 +167,8 @@ export function sanitize(s: Settings): Settings {
     gameFov: clamp(num(s.gameFov, DEFAULT_SETTINGS.gameFov), 40, 110),
     fleaMin: Math.max(0, Math.round(num(s.fleaMin, 0))),
     lootHeat: Boolean(s.lootHeat),
+    questItemMin: Math.round(clamp(num(s.questItemMin, 8), 0, 30)),
+    showDoneQuests: Boolean(s.showDoneQuests),
     corner: CORNERS.includes(s.corner) ? s.corner : "top-right",
     mode: (["manual", "hold", "timer"] as const).includes(s.mode) ? s.mode : "hold",
     playerName: String(s.playerName ?? "").slice(0, 24),

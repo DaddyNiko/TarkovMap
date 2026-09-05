@@ -34,8 +34,8 @@ interface JsonMap {
 export interface JsonMapsPayload {
   data: { maps: Record<string, JsonMap> | JsonMap[]; mobs?: Record<string, { id?: string; name?: string; normalizedName?: string }>; lootContainers?: Record<string, { name?: string; normalizedName?: string }>; stationaryWeapons?: Record<string, { name?: string; normalizedName?: string }> };
 }
-interface JsonObjective { id: string; type: string; description?: string; count?: number; items?: string[]; questItem?: string | null; zones?: Array<{ id?: string; map?: string; position: Vec3; outline?: Vec3[] }>; possibleLocations?: Array<{ map?: string; positions?: Vec3[] }> }
-interface JsonTask { id: string; name: string; trader?: string; map?: string | null; minPlayerLevel?: number; objectives?: JsonObjective[] }
+interface JsonObjective { id: string; type: string; description?: string; count?: number; items?: string[]; foundInRaid?: boolean; optional?: boolean; questItem?: string | null; zones?: Array<{ id?: string; map?: string; position: Vec3; outline?: Vec3[] }>; possibleLocations?: Array<{ map?: string; positions?: Vec3[] }> }
+interface JsonTask { id: string; name: string; normalizedName?: string; trader?: string; map?: string | null; minPlayerLevel?: number; objectives?: JsonObjective[]; taskRequirements?: Array<{ task: string; status?: string[] }>; wikiLink?: string; kappaRequired?: boolean; neededKeys?: Array<{ map?: string | null; keys?: string[] }>; factionName?: string }
 export interface JsonTasksPayload { data: { tasks: Record<string, JsonTask> | JsonTask[]; questItems?: Record<string, { name?: string }> } }
 
 const values = <T>(x: Record<string, T> | T[] | undefined): T[] => (Array.isArray(x) ? x : Object.values(x ?? {}));
@@ -49,7 +49,9 @@ export function nameOf(names: Names, key: string | undefined | null, fallback?: 
   if (!key) return fallback ?? "";
   return names[key] ?? fallback ?? prettify(key);
 }
-const itemName = (names: Names, id: string): string => names[`${id} Name`] ?? names[`${id} ShortName`] ?? prettify(id);
+export const itemName = (names: Names, id: string): string => names[`${id} Name`] ?? names[`${id} ShortName`] ?? prettify(id);
+/** Item icon as served by tarkov.dev's asset host. */
+export const itemIcon = (id: string): string => `https://assets.tarkov.dev/${id}-icon.webp`;
 function centroid(points: Vec3[]): Vec3 | null {
   const pts = points.filter((p) => p && typeof p.x === "number");
   if (!pts.length) return null;
@@ -116,17 +118,33 @@ export function convertJsonTasks(payload: JsonTasksPayload, idToKey: Record<stri
       for (const z of o.zones ?? []) if (z.position) zones.push({ position: z.position, outline: z.outline, map: keyFor(z.map) });
       for (const p of o.possibleLocations ?? []) for (const pos of p.positions ?? []) zones.push({ position: pos, map: keyFor(p.map) });
       const mapKeys = [...new Set(zones.map((z) => z.map?.normalizedName).filter((x): x is string => Boolean(x)))];
-      const questItem = o.questItem ? { name: nameOf(names, d.questItems?.[o.questItem]?.name ?? `${o.questItem} Name`) } : null;
+      const questItem = o.questItem ? { name: nameOf(names, d.questItems?.[o.questItem]?.name ?? `${o.questItem} Name`), id: o.questItem } : null;
       return {
         id: o.id, type: o.type, description: nameOf(names, o.description ?? o.id, o.type), count: o.count,
         maps: mapKeys.length ? mapKeys.map((k) => ({ normalizedName: k })) : t.map ? [{ normalizedName: idToKey[t.map] ?? t.map }] : undefined,
         zones: zones.length ? zones : undefined,
-        item: o.items?.length ? { name: itemName(names, o.items[0]), iconLink: `https://assets.tarkov.dev/${o.items[0]}-icon.webp` } : null,
+        item: o.items?.length ? { name: itemName(names, o.items[0]), iconLink: itemIcon(o.items[0]) } : null,
         questItem,
+        items: o.items?.length ? o.items : undefined,
+        foundInRaid: Boolean(o.foundInRaid),
+        optional: Boolean(o.optional),
       };
     });
-    return { id: t.id, name: nameOf(names, t.name), trader: { id: t.trader ?? "", name: t.trader ? nameOf(names, `${t.trader} Nickname`, t.trader) : "" }, map: keyFor(t.map), objectives, minPlayerLevel: t.minPlayerLevel };
+    return {
+      id: t.id, name: names[t.name] ?? taskNameFallback(t), trader: { id: t.trader ?? "", name: t.trader ? nameOf(names, `${t.trader} Nickname`, t.trader) : "" }, map: keyFor(t.map), objectives, minPlayerLevel: t.minPlayerLevel,
+      taskRequirements: (t.taskRequirements ?? []).map((r) => ({ task: r.task, status: r.status ?? ["complete"] })),
+      wikiLink: t.wikiLink, kappaRequired: Boolean(t.kappaRequired), factionName: t.factionName,
+      neededKeys: (t.neededKeys ?? []).filter((k) => k.keys?.length).map((k) => ({ map: k.map ? idToKey[k.map] ?? k.map : null, keys: (k.keys ?? []).map((id) => itemName(names, id)) })),
+    };
   });
+}
+
+/** A quest the locale table does not know yet (added after the dump): its wiki slug or normalized name, never a bare id. */
+function taskNameFallback(t: JsonTask): string {
+  const wiki = t.wikiLink ? decodeURIComponent(t.wikiLink.split("/wiki/")[1] ?? "").replace(/_/g, " ").trim() : "";
+  if (wiki) return wiki;
+  if (t.normalizedName) return prettify(t.normalizedName);
+  return /^[0-9a-f]{24} name$/i.test(t.name) ? "New quest" : prettify(t.name);
 }
 
 /** One JSON API dataset ("maps", "tasks"). The maps file is ~9 MB, hence the long timeout. */

@@ -65,6 +65,12 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 #pairs div span { min-width: 90px; }
 #pairs div b { color: var(--amber); }
 #pairs div i { font-style: normal; color: var(--dim); flex: 1; }
+.qsec { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin: 12px 0 4px; }
+.qrow.done { opacity: .45; }
+.qrow .objs { margin-top: 4px; }
+.qrow .obj { display: block; font-size: 11.5px; color: rgba(255,255,255,.85); }
+.qrow .obj.done { opacity: .5; text-decoration: line-through; }
+.qrow .obj em { color: var(--dim); font-style: normal; }
 </style>
 </head>
 <body>
@@ -78,7 +84,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
     <a data-s="layers">Layers</a>
     <a data-s="setup">Setup</a>
     <a data-s="help">Help</a>
-    <div class="foot" id="ver">v0.2</div>
+    <div class="foot" id="ver"></div>
   </nav>
   <main>
     <section id="s-raid" class="on">
@@ -151,7 +157,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 
     <section id="s-quests">
       <h2>Quests</h2>
-      <div class="sub">Read live from the game's own notifications: a quest appears when the game says it started and vanishes when it finishes.</div>
+      <div class="sub">Accepted, not started, locked and done, from the game's own notifications. Visit and extract objectives tick themselves from your position; item counts (2/5) are not in the logs, so tick those by hand. Your level is not in the logs either, so "not started" only means the earlier quests are done.</div>
       <div class="notice" id="questNotice"></div>
       <div class="card"><div id="questList"></div></div>
     </section>
@@ -161,8 +167,12 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <div class="sub">What the minimap and the full map show for the current map. Also changeable by typing on the full map.</div>
       <div class="notice" id="layerNotice"></div>
       <div class="card"><div id="layerChips"></div>
+        <div class="k" style="margin-top:6px"><b>All quests</b> draws every quest with a spot on this map, coloured by state (amber accepted, white not started, grey locked, green done). <b>Quest items</b> shows items that accepted and future quests need, at the spots where they can spawn; hover or click one on the full map for the quests, the count, found-in-raid and a tick box.</div>
+        <div style="margin-top:8px"><span class="chip" data-tog="lootHeat">Loot value heat</span><span class="chip" data-tog="showDoneQuests">show finished quests</span></div>
         <div class="sl" style="margin-top:10px"><span>Flea, at least</span><input type="range" id="fleaMin" min="0" max="300000" step="5000"><em id="fleaMinV"></em></div>
-        <div class="k">Loot spots where an item worth at least this much can spawn. A spawn map, not a radar. Needs tarkov.dev's item prices.</div>
+        <div class="k">Loot spots where an item worth at least this much can spawn. A spawn map, not a radar.</div>
+        <div class="sl" style="margin-top:10px"><span>Quest items, importance at least</span><input type="range" id="questItemMin" min="0" max="30" step="1"><em id="questItemMinV"></em></div>
+        <div class="k">The score rises with how many you need, how many quests want it, found-in-raid, how rare it is on this map, its flea price, and whether the quest is already accepted. Quest-specific items (documents, flash drives) score extra.</div>
       </div>
       <div class="card"><h3>Ask in plain English</h3><input type="text" id="ask" placeholder="show extracts, dorm keys and anything over 40k"><div class="k" id="askOut" style="margin-top:6px"></div></div>
     </section>
@@ -216,7 +226,13 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
         </div>
         <div class="k" style="margin-top:6px">Only used when the built-in parser doesn't understand a sentence. Free models by default; the sentence is all the model ever sees. Get a key at openrouter.ai/keys. Anyone else using this app pastes their own key here.</div>
       </div>
-      <div class="card"><h3>6 · Storage</h3>
+      <div class="card"><h3>6 · Data source</h3>
+        <div class="k">Markers: <span id="dsMarkers">—</span> · Quests: <span id="dsQuests">—</span></div>
+        <div class="k" id="dsSub"></div>
+        <button id="bRefreshData">Refresh now</button><button id="bRescan">Re-scan quest history</button>
+        <div class="k" style="margin-top:6px">Extract pins, keys, containers, loot and quest items come from json.tarkov.dev (what the tarkov.dev site itself runs on). Without it the app runs on the game's own data: spawns, bosses, extract and quest names. Quest progress comes from your game logs; the re-scan reads every log folder again.</div>
+      </div>
+      <div class="card"><h3>7 · Storage</h3>
         <div class="k">Map tiles cached: <span id="tileSize">—</span> · RE3MR renders: <span id="re3mrSize">—</span></div>
         <button id="bTiles">Download all maps now</button><button class="danger" id="bClearTiles">Clear tile cache</button><button id="bOpenData">Open data folder</button>
       </div>
@@ -252,17 +268,17 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h3 id="h-bigmap">5 · The full map</h3>
       <p>Opens on the second monitor (or with the "Open full map" button). Same imagery and markers, every layer, floors, the flea slider and the ask box. Drag and zoom freely; the minimap is a window onto this map.</p>
       <h3 id="h-base">6 · The map imagery and aligning a render</h3>
-      <p>Three looks. <b>Light</b> (default) and <b>Dark</b> are drawn by this app from the game's vector data — every map, every floor, one floor at a time; Labyrinth and Icebreaker were traced from the game's own tiles because no vector of them exists anywhere. <b>3D</b> is RE3MR's render (reemr.se, Creative Commons BY-NC-SA 4.0; his credit stays on the map) on the seven maps that have one. Aligning a render means telling the app where game coordinates land on the picture: on the Map page, click the same spot on the render and on the tiles, six or more pairs across the map, and save. The error shown is the average miss in metres; under five is good. Every map ships pre-aligned by me, so this is only for nudging.</p>
+      <p>Three looks. <b>Light</b> (default) and <b>Dark</b> are drawn by this app from the game's vector data — every map, every floor, one floor at a time; Labyrinth and Icebreaker were traced from the game's own tiles because no vector of them exists anywhere. <b>3D</b> is RE3MR's render (reemr.se, Creative Commons BY-NC-SA 4.0; his credit stays on the map) on the maps that have one (the Map page lists them). Aligning a render means telling the app where game coordinates land on the picture: on the Map page, click the same spot on the render and on the tiles, six or more pairs across the map, and save. The error shown is the average miss in metres; under five is good. Every map ships pre-aligned by me, so this is only for nudging.</p>
       <h3 id="h-quests">7 · Quests</h3>
-      <p>When the game says a quest started, it appears; when the game says it finished, it disappears. Objectives with a fixed spot get a marker with the trader's face. The first run scans your old logs to seed the list. If a quest is stuck, tick it off on the Quests page.</p>
+      <p>When the game says a quest started, it appears; when the game says it finished, it disappears. Every start reads your whole log history again, so a quest you finished while the app was closed is picked up. Objectives with a fixed spot get a marker with the trader's face; hover or click one on the full map for the quest's state, level, objectives and a wiki button. <b>Visit</b> and <b>extract</b> objectives tick themselves when your position enters the zone; item counts and kills are not in the logs, so tick those in the popup or on the Quests page. The <b>All quests</b> layer draws every quest on the map: amber accepted, white not started, grey locked behind earlier quests, green done (hidden unless "show finished" is on). The <b>Quest items</b> layer marks items that accepted and future quests need, at the spots where they can spawn, with an importance score you filter with the slider; quest-specific items (documents, drives) lie at their exact spots. Your level is not in the logs, so "not started" only means the earlier quests are done.</p>
       <h3 id="h-squad">8 · Squad sharing and pings</h3>
       <p>Everyone types the same squad code and their name. On the same network the app finds the others by itself; positions are shared only inside the same raid. Teammates show on both maps and as a small name tag in the game view (approximate, refreshed with each of your fixes). Pings mark a spot at your position with a word; they show on every squadmate's maps and as a tag, and expire after five minutes.</p>
       <h3 id="h-layers">9 · Layers, flea filter and the ask box</h3>
-      <p>Chips switch layers per map: extracts, quests, places, squad, keys, bosses, scav spawns, hazards, containers, loot, machine guns, switches. The flea slider lights loot spots where an item worth at least that much can spawn (a spawn map, not what actually spawned). The ask box takes a sentence like <code>show extracts, dorm keys and anything over 40k</code>; if the built-in parser doesn't get it and you added an OpenRouter key, a free model translates it. Marker data comes from tarkov.dev; when their API is down the app says so and keeps retrying every 15 minutes.</p>
+      <p>Chips switch layers per map: extracts, quests, all quests, quest items, places, distance text, squad, keys, bosses, scav spawns, PMC spawns, hazards, containers, loot, machine guns, switches. <b>Loot value</b> (Style, or the Layers page) colours 25 m squares by the loot that can spawn there. The flea slider lights loot spots where an item worth at least that much can spawn (a spawn map, not what actually spawned). The ask box takes a sentence like <code>show extracts, dorm keys and anything over 40k</code> or <code>quest items and all quests</code>; if the built-in parser doesn't get it and you added an OpenRouter key, a free model translates it. Marker data comes from json.tarkov.dev; the game's own data covers spawns, bosses and names when it is down, and the app retries every 15 minutes.</p>
       <h3 id="h-fullscreen">10 · Fullscreen vs borderless</h3>
       <p>On Windows 11 a fullscreen EFT normally still shows the overlay thanks to fullscreen optimizations. If you see nothing while the game has focus, either switch EFT to borderless (no performance difference on Windows 11) or use the second-monitor map, which always works.</p>
       <h3 id="h-privacy">11 · Privacy, storage and fair play</h3>
-      <p>Screenshots are deleted about a second after they appear; the folder count on the Raid page should read zero. Map tiles and RE3MR renders are cached once under the data folder and can be cleared. Nothing is uploaded except your squad messages to your own squad and the ask-box sentence to OpenRouter when you enabled it. No enemy positions, no memory reading, no injection.</p>
+      <p>Screenshots are deleted about a second after they appear; the folder count on the Raid page should read zero. Map tiles and RE3MR renders are cached once under the data folder and can be cleared; your quest book and ticked objectives live there too (quests.json, quest-progress.json). Nothing is uploaded except your squad messages to your own squad and the ask-box sentence to OpenRouter when you enabled it. No enemy positions, no memory reading, no injection.</p>
       <h3 id="h-trouble">12 · Troubleshooting</h3>
       <ul><li><b>No fix</b>: the screenshot key is not bound in EFT, or the mode is Manual. Press Test and tap the key.</li><li><b>Wrong map / "in menu" forever</b>: the EFT folder path is wrong; check that <code>build\Logs</code> exists inside it. Pick a map by hand on the Raid page to plan.</li><li><b>Overlay invisible</b>: see section 10. Press <code>F10</code> once in case it was hidden.</li><li><b>Teammates missing</b>: same squad code, same raid, same network; Windows Firewall must allow the app on private networks.</li><li><b>Blank map or empty layers</b>: the render is still downloading or slicing (Map page shows progress), tiles are still downloading (Setup ▸ Storage), or tarkov.dev is down (red notice; retries every 15 min).</li></ul>
     </section>
