@@ -68,6 +68,7 @@ Section
   goodh_running:
     ; The running app owns this folder. Pass the click along and get out —
     ; nothing here may delete or overwrite a file it is using.
+    System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("TARKOVMAP_ARGS", "$R0").r0'
     Exec '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" $R0'
     SetErrorLevel 0
     Quit
@@ -120,6 +121,9 @@ Section
     BgImage::Destroy
   !endif
 
+  ; TarkovMap: the app's own argv has been seen to arrive empty through this stub, so the
+  ; parameters ride in the environment too (a login item passes --tray this way).
+  System::Call 'Kernel32::SetEnvironmentVariable(t, t)i ("TARKOVMAP_ARGS", "$R0").r0'
 	ExecWait "$INSTDIR\${APP_EXECUTABLE_FILENAME} $R0" $0
   SetErrorLevel $0
 

@@ -78,7 +78,7 @@ let foregroundApp = "";
 /** Tarkov / Arena process exists (key helper "game 1|0"); null until the first report. */
 let gameRunning: boolean | null = null;
 /** Started by Windows at login (or with --tray): no settings window, wait in the tray for the game. */
-const TRAY_START = process.argv.includes("--tray") || Boolean(app.getLoginItemSettings?.().wasOpenedAtLogin);
+const TRAY_START = process.argv.includes("--tray") || /--tray/.test(process.env.TARKOVMAP_ARGS || "") || Boolean(app.getLoginItemSettings?.().wasOpenedAtLogin);
 function bigMapWanted(): boolean {
   if (!settings.bigMapEnabled || bigmapDismissed) return false;
   if (!settings.overlayOnlyInGame) return true;
@@ -684,8 +684,14 @@ if (!lock) {
   app.whenReady().then(() => {
     mkdirSync(USER(), { recursive: true });
     settings = loadSettings(SETTINGS_FILE());
+    log(`start: argv [${process.argv.slice(1).join(" ")}] env-args [${process.env.TARKOVMAP_ARGS ?? ""}] tray=${TRAY_START}`);
     if (!settings.installPath) { settings.installPath = detectInstall(); if (settings.installPath) log(`found EFT at ${settings.installPath}`); }
     if (!settings.screenshotsFolder) settings.screenshotsFolder = defaultScreenshotsFolder(myDocuments());
+    // The launcher stub mangles command-line arguments (argv arrives as the extraction path), so a
+    // login start cannot be told apart by a flag. It does not need to be: once the game folder is
+    // known, setup is done and NO window opens at start — the tray waits, the maps come out when
+    // Tarkov runs, and Setup is one tray click away.
+    if (!settings.setupDone && settings.installPath && logsDirFor(settings.installPath)) { settings.setupDone = true; log("setup: game folder known — starting quietly from now on"); }
     saveSettings(SETTINGS_FILE(), settings);
     loadQuests();
     registerIpc();

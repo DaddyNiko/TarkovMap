@@ -25,7 +25,9 @@ if (!existsSync(theirs)) {
   process.exit(1);
 }
 const before = readFileSync(theirs, "utf8");
-if (!before.includes(GUARD_MARKER)) {
+// Copy whenever OUR stub differs — the marker check alone left a newer build/portable.nsi
+// unshipped (2026-09-05: the TARKOVMAP_ARGS hand-off never reached the exe).
+if (!before.includes(GUARD_MARKER) || before !== readFileSync(ours, "utf8")) {
   copyFileSync(ours, theirs);
 }
 const after = readFileSync(theirs, "utf8");
