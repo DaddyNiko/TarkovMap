@@ -15,7 +15,7 @@
   let lastLayersKey = "";
 
   const RAID_MIN = TM.RAID_MINUTES;
-  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad"];
+  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad", "bosses"];
   const onLayers = () => new Set((snap && mapPayload && snap.settings.layers[mapPayload.def.key]) || defaultLayers);
 
   // ── HUD layout (window is already sized to the region by main) ─────────

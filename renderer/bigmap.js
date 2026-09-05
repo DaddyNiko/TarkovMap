@@ -5,11 +5,11 @@
 (function () {
   const $ = (id) => document.getElementById(id);
   const LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["landmarks", "Places"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
-  const STYLES = [["studio", "Studio"], ["night", "Night"]];
+  const STYLES = [["studio", "Light"], ["night", "Dark"]];
   let snap = null, mapPayload = null, built = null, markers = L.layerGroup(), squadLayer = L.layerGroup(), meMarker = null, trailLine = null, followed = false, manualFloor = null;
   let distLabels = []; // {el, pos}
   let lastMarkersKey = "";
-  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad"];
+  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad", "bosses"];
   const on = () => new Set((snap && mapPayload && snap.settings.layers[mapPayload.def.key]) || defaultLayers);
 
   function baseChoice() {
@@ -30,6 +30,7 @@
     if (built) { view = built.key === key ? { c: built.map.getCenter(), z: built.map.getZoom() } : null; built.map.remove(); built = null; }
     $("map").innerHTML = "";
     const b = TM.buildMap($("map"), mapPayload, { base, style, extrudeDepth: snap.settings.extrudeDepth });
+    b.map.on("zoomend", () => { if (built === b) { lastMarkersKey = ""; paintMarkers(); } }); // small place names appear as he zooms in
     built = { map: b.map, setFloor: b.setFloor, floors: b.floors, key, base, sig, bounds: b.bounds };
     setTimeout(() => built && built.map.invalidateSize(), 80);
     setTimeout(() => built && built.map.invalidateSize(), 600);
@@ -72,12 +73,26 @@
   function paintControls() {
     if (!snap || !mapPayload) return;
     const set = on();
+    const f = mapPayload.features || {};
+    const hasBoss = (f.spawns || []).some((sp) => (sp.categories || []).some((c) => /boss|rogue|cultist|raider/i.test(c)));
+    // What each layer could draw right now — an empty chip must say so, or it reads as broken.
+    const EMPTY = {
+      extracts: !(f.extracts || []).some((e) => e.position), keys: !(f.locks || []).length, containers: !(f.lootContainers || []).length,
+      loot: !(f.lootContainers || []).length, guns: !(f.stationaryWeapons || []).length, switches: !(f.switches || []).length, hazards: !(f.hazards || []).length,
+      bosses: !hasBoss, scavs: !(f.spawns || []).length, pmc: !(f.pmcSpawns || []).length, quests: !(snap.objectives || []).some((o) => o.position),
+    };
+    const NEEDS_API = "no positions in the offline data — waiting for tarkov.dev (retrying every 15 min)";
     const lay = $("layers");
     lay.innerHTML = "";
     for (const [id, label] of LAYERS) {
       const c = document.createElement("span");
       c.className = "chip" + (set.has(id) ? " on" : "");
       c.textContent = label;
+      if (EMPTY[id]) {
+        c.classList.add("empty");
+        c.title = id === "extracts" ? "extract names are listed below; " + NEEDS_API : id === "keys" ? "locked rooms are drawn on the floor plans; key names and door pins need tarkov.dev" : NEEDS_API;
+        c.textContent = label + " · none yet";
+      }
       c.onclick = () => { const s = on(); s.has(id) ? s.delete(id) : s.add(id); window.api.setLayers(mapPayload.def.key, [...s]); };
       lay.appendChild(c);
     }
@@ -117,14 +132,20 @@
 
   function paintMarkers() {
     if (!built || !snap || !mapPayload) return;
-    const key = JSON.stringify([[...on()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.fleaMin, currentFloor]);
+    const key = JSON.stringify([[...on()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.fleaMin, currentFloor, Math.round(built.map.getZoom())]);
     if (key === lastMarkersKey) { updateDistances(); return; }
     lastMarkersKey = key;
     markers.clearLayers();
     distLabels = [];
     const def = mapPayload.def, f = mapPayload.features, set = on();
     const withDist = (icon, pos) => { const m = L.marker(TM.pos(pos.x, pos.z), { icon, interactive: false }); markers.addLayer(m); requestAnimationFrame(() => { const el = m.getElement(); const s = el && el.querySelector("small"); addDist(pos, s); }); return m; };
-    if (set.has("landmarks")) for (const l of TM.labelsForFloor(def, currentFloor)) markers.addLayer(L.marker(TM.pos(l.position[0], l.position[1]), { icon: TM.place(l.text, l.size), interactive: false }));
+    if (set.has("landmarks")) {
+      // Dense floors (77 store names on Interchange) overlap into mush at a wide zoom: the big names always
+      // show, mid-size ones two steps from the closest zoom, the small ones one step from it.
+      const z = built.map.getZoom(), maxZ = def.maxZoom || 6;
+      const show = (l) => !l.size || l.size >= 90 || (l.size >= 70 && z >= maxZ - 2) || z >= maxZ - 1;
+      for (const l of TM.labelsForFloor(def, currentFloor)) if (show(l)) markers.addLayer(L.marker(TM.pos(l.position[0], l.position[1]), { icon: TM.place(l.text, l.size), interactive: false }));
+    }
     if (set.has("extracts")) for (const e of TM.extractsFor(f, snap.game.side)) {
       if (!e.position) continue;
       const color = e.faction === "transit" ? TM.COLORS.transit : e.faction === "scav" ? TM.COLORS.scavExtract : TM.COLORS.extract;

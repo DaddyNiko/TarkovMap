@@ -5,6 +5,8 @@
 
   TM.RAID_MINUTES = { customs: 40, woods: 40, shoreline: 45, interchange: 40, reserve: 40, lighthouse: 40, "streets-of-tarkov": 45, "the-lab": 35, factory: 20, "ground-zero": 35, "the-labyrinth": 35, icebreaker: 40, terminal: 40 };
 
+  /** How much of the ground shows through under a floor plan. */
+  TM.GHOST_OPACITY = 0.22;
   TM.COLORS = { extract: "#78e68c", scavExtract: "#b8f0a0", transit: "#9be0ff", quest: "#ffc45c", loot: "#ff6e96", key: "#c8a0ff", squad: "#60c8ff", boss: "#ff5a5a", scav: "#d9c27a", hazard: "#ff8a3d", ping: "#ffc45c", gun: "#bfbfbf", switch: "#7fe3ff" };
 
   TM.rot = function (ll, r) {
@@ -184,15 +186,16 @@
         if (floorOverlay) { map.removeLayer(floorOverlay); floorOverlay = null; }
         // on a floor the render is hidden: only that floor's plan shows (exclusive, like the vector base)
         const plan = name && hasVector && planExists(name) ? "vector" : name && tileFloorFor(name) ? "tile" : null;
-        if (base.getContainer()) base.getContainer().style.display = plan ? "none" : "";
+        // on a floor the render stays underneath, faint — enough to see where the floor sits, not enough to compete
+        if (base.getContainer()) base.getContainer().style.opacity = plan ? String(TM.GHOST_OPACITY) : "";
         if (plan === "vector") floorOverlay = L.svgOverlay(styled(name), bounds, { className: "tm-style", interactive: false }).addTo(map);
         else if (plan === "tile") { const l = tileFloorFor(name); floorOverlay = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: def.maxZoom || 6 }).addTo(map); }
       };
       return { map, setFloor, floors, bounds, def, base: "re3mr", credit };
     }
 
-    // ── vector base (Studio / Night) — photo tiles only when there is no vector at all ────
-    let tileBase = null, floorTile = null, overlay = null;
+    // ── vector base (Light / Dark) — photo tiles only when there is no vector at all ────
+    let tileBase = null, floorTile = null, overlay = null, ghost = null;
     if (!hasVector && def.tilePath) {
       tileBase = TM.tileLayer(def.tilePath, payload.localTemplates[def.tilePath], { tileSize, bounds, className: "tm-base tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map);
     }
@@ -201,16 +204,20 @@
       current = name;
       if (overlay) { map.removeLayer(overlay); overlay = null; }
       if (floorTile) { map.removeLayer(floorTile); floorTile = null; }
+      if (ghost) { map.removeLayer(ghost); ghost = null; }
+      // A floor = the ground faint underneath (his ask: "add the map back, pretty low opacity, so I can
+      // see which floor I'm on") + ONLY that floor's plan on top. Every other floor stays hidden.
       if (hasVector && name && !planExists(name)) {
         const l = tileFloorFor(name);
+        ghost = L.svgOverlay(styled(null), bounds, { className: "tm-style" + (l ? " tm-ghost" : ""), interactive: false }).addTo(map); // no plan anywhere: the ground, full strength, beats a blank
         if (l) floorTile = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map);
-        else overlay = L.svgOverlay(styled(null), bounds, { className: "tm-style", interactive: false }).addTo(map); // no plan anywhere: the ground beats a blank
       } else if (hasVector) {
+        if (name) ghost = L.svgOverlay(styled(null), bounds, { className: "tm-style tm-ghost", interactive: false }).addTo(map);
         overlay = L.svgOverlay(styled(name), bounds, { className: "tm-style", interactive: false }).addTo(map);
       } else if (name) {
         const l = (def.layers || []).find((x) => x.name === name);
-        if (l && l.tilePath) { floorTile = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map); if (tileBase) tileBase.getContainer().style.display = "none"; }
-      } else if (tileBase) tileBase.getContainer().style.display = "";
+        if (l && l.tilePath) { floorTile = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map); if (tileBase) tileBase.getContainer().style.opacity = String(TM.GHOST_OPACITY); }
+      } else if (tileBase) tileBase.getContainer().style.opacity = "";
     };
     setFloor(null);
     return { map, setFloor, floors, bounds, def, base: "vector", credit };
@@ -222,7 +229,7 @@
 
   TM.pin = (color, label, sub) => icon(`<div class="tm-pin" style="background:${color}"><i></i></div>${label ? `<div class="tm-lbl">${esc(label)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>` : ""}`, [14, 14], [7, 14]);
   TM.dot = (color, label) => icon(`<div class="tm-dot" style="background:${color}"></div>${label ? `<div class="tm-lbl tm-lbl-dot">${esc(label)}</div>` : ""}`, [9, 9], [4, 4]);
-  TM.place = (text, size) => icon(`<div class="tm-place" style="font-size:${size ? Math.round(size / 9) : 10}px">${esc(text)}</div>`, [0, 0], [0, 0]);
+  TM.place = (text, size) => icon(`<div class="tm-place" style="font-size:${size ? Math.max(11, Math.round(size / 8)) : 11}px">${esc(text)}</div>`, [0, 0], [0, 0]);
   TM.me = () => icon('<div class="tm-cone"></div><div class="tm-me"></div>', [0, 0], [0, 0]);
   TM.mate = (name, sub, color) => icon(`<div class="tm-mate" style="border-bottom-color:${color || TM.COLORS.squad}"></div><div class="tm-lbl" style="color:${color || TM.COLORS.squad}">${esc(name)}${sub ? `<small>${esc(sub)}</small>` : ""}</div>`, [0, 0], [0, 0]);
   TM.ping = (text, who) => icon(`<div class="tm-ping"></div><div class="tm-lbl" style="color:${TM.COLORS.ping}">${esc(text)}${who ? `<small>${esc(who)}</small>` : ""}</div>`, [0, 0], [0, 0]);

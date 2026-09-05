@@ -4,7 +4,7 @@
   const KEYS = ["F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PrintScreen","ScrollLock","Pause","Insert","Home","PageUp","PageDown","End","Delete","CapsLock","Tab","Numpad0","Numpad1","Numpad2","Numpad3","Numpad4","Numpad5","Numpad6","Numpad7","Numpad8","Numpad9","NumpadMultiply","NumpadAdd","NumpadSubtract","NumpadDecimal","NumpadDivide","Mouse3","Mouse4","Mouse5"];
   const HOLD = ["CapsLock","LeftShift","LeftCtrl","LeftAlt","RightAlt","Tab","Mouse4","Mouse5","Mouse3","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","Numpad0"];
   const LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["landmarks", "Places"], ["hud", "Distance text"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
-  const STYLES = [["studio", "Studio"], ["night", "Night"]];
+  const STYLES = [["studio", "Light"], ["night", "Dark"]];
   const SLIDERS = ["mapOpacity", "overlayScale", "panelOpacity", "minimapSize", "followZoom", "margin", "gameFov", "fleaMin", "extrudeDepth"];
   let snap = null, mapPayload = null;
   let dirtySetup = false;
@@ -147,7 +147,7 @@
       const p = snap.re3mrProgress && snap.re3mrProgress[m.key];
       const row = document.createElement("div");
       row.className = "maprow";
-      const status = !m.re3mr ? "no 3D render published — Studio / Night only" : p ? `${p.stage}${p.total > 1 ? ` ${p.done}/${p.total}` : ""}` : m.re3mrReady && m.registered ? `ready · aligned ~${Math.round(m.errorM || 0)} m${(m.errorM || 0) > 8 ? " (rough first pass — refine below)" : ""}` : m.re3mrReady ? "sliced · needs alignment" : m.registered ? `aligned ~${Math.round(m.errorM || 0)} m · not downloaded yet` : "not downloaded";
+      const status = !m.re3mr ? "no 3D render published — Light / Dark only" : p ? `${p.stage}${p.total > 1 ? ` ${p.done}/${p.total}` : ""}` : m.re3mrReady && m.registered ? `ready · aligned ~${Math.round(m.errorM || 0)} m${(m.errorM || 0) > 8 ? " (rough first pass — refine below)" : ""}` : m.re3mrReady ? "sliced · needs alignment" : m.registered ? `aligned ~${Math.round(m.errorM || 0)} m · not downloaded yet` : "not downloaded";
       row.innerHTML = `<span class="n">${m.name}</span><span class="s">${status}</span>`;
       if (m.re3mr && !m.re3mrReady && !p) { const b = document.createElement("button"); b.textContent = "Download + slice"; b.onclick = () => window.api.re3mrPrepare(m.key); row.appendChild(b); }
       if (m.re3mr) { const b = document.createElement("button"); b.textContent = "Align"; b.onclick = () => { $("alignMap").value = m.key; align.load(m.key); }; row.appendChild(b); }

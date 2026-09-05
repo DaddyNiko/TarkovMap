@@ -21,13 +21,14 @@ html, body { margin: 0; font-family: var(--font); font-feature-settings: "tnum";
 .leaflet-tile { image-rendering: auto; }
 .tm-dim { opacity: 0.45; }
 .tm-ico { background: none; border: none; }
+.tm-ghost { opacity: 0.22; }
 .tm-pin { position: relative; width: 14px; height: 14px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg) rotate(var(--unrot, 0deg)); box-shadow: 0 0 0 1.5px #08090a; transform-origin: 50% 100%; }
 .tm-pin i { position: absolute; left: 4px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: #08090a; }
 .tm-dot { width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1.5px #08090a; }
-.tm-lbl { position: absolute; left: 16px; top: -2px; font-weight: 600; font-size: 11.5px; color: #fff; white-space: nowrap; text-shadow: 0 0 3px #000, 0 1px 2px #000, 0 0 8px rgba(0, 0, 0, 0.9); transform: rotate(var(--unrot, 0deg)); transform-origin: 0 50%; pointer-events: none; }
+.tm-lbl { position: absolute; left: 16px; top: -2px; font-weight: 600; font-size: 12px; color: #fff; white-space: nowrap; paint-order: stroke fill; -webkit-text-stroke: 2px rgba(8, 9, 10, 0.8); text-shadow: 0 0 4px #000, 0 1px 2px #000, 0 0 8px rgba(0, 0, 0, 0.9); transform: rotate(var(--unrot, 0deg)); transform-origin: 0 50%; pointer-events: none; }
 .tm-lbl-dot { left: 12px; top: -4px; }
 .tm-lbl small { font-weight: 400; color: rgba(255, 255, 255, 0.7); margin-left: 4px; font-size: 10.5px; }
-.tm-place { font-weight: 600; color: rgba(255, 255, 255, 0.62); letter-spacing: 2px; text-transform: uppercase; text-shadow: 0 0 4px #000, 0 1px 2px #000; white-space: nowrap; transform: translate(-50%, -50%) rotate(var(--unrot, 0deg)); pointer-events: none; }
+.tm-place { font-weight: 600; color: #fff; letter-spacing: 2px; text-transform: uppercase; paint-order: stroke fill; -webkit-text-stroke: 2.5px rgba(8, 9, 10, 0.85); text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 1px 3px #000; white-space: nowrap; transform: translate(-50%, -50%) rotate(var(--unrot, 0deg)); pointer-events: none; }
 .tm-me { position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: 9px solid transparent; border-right: 9px solid transparent; border-bottom: 24px solid #fff; filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.9)); transform: translate(-9px, -14px) rotate(var(--me-rot, 0deg)); transform-origin: 9px 14px; }
 .tm-cone { position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: 40px solid transparent; border-right: 40px solid transparent; border-bottom: 150px solid rgba(255, 255, 255, 0.1); transform: translate(-40px, 0) rotate(calc(var(--me-rot, 0deg) + 180deg)); transform-origin: 40px 0; }
 .tm-mate { position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 18px solid #60c8ff; transform: translate(-7px, -11px) rotate(var(--rot, 0deg)); transform-origin: 7px 11px; filter: drop-shadow(0 0 3px rgba(96, 200, 255, 0.8)); }

@@ -76,7 +76,7 @@ export function sptToFeatures(base: SptBase, normalizedName: string, snipers?: A
   for (const b of base.BossLocationSpawn ?? []) {
     if (!b.BossName || (b.BossChance ?? 0) <= 0) continue;
     const zones = (b.BossZone ?? "").split(",").map((z) => z.trim()).filter(Boolean);
-    const pts = zones.flatMap((z) => byZone.get(z) ?? []);
+    const pts = zones.flatMap((z) => byZone.get(z) ?? nearZone(byZone, z));
     bosses.push({ name: bossDisplayName(b.BossName), zone: zones.join(", "), chance: Math.round(b.BossChance ?? 0), position: centroid(pts), escorts: b.BossEscortType ? bossDisplayName(b.BossEscortType) : undefined });
   }
   // a boss is also a "spawn" so the existing bosses layer draws it without new renderer paths
@@ -87,6 +87,13 @@ export function sptToFeatures(base: SptBase, normalizedName: string, snipers?: A
   }));
   const hazards: MapFeatures["hazards"] = (snipers ?? []).map((s) => ({ hazardType: "sniper", name: s.name ? `Sniper · ${s.name}` : "Sniper", position: s.position }));
   return { normalizedName, extracts, transits: [], spawns, hazards, locks: [], lootContainers: [], stationaryWeapons: [], switches: [], bosses, pmcSpawns, source: "spt" };
+}
+
+/** Spawn points of every zone sharing the boss zone's stem ("ZoneCarShowroom" -> "ZoneSnipeCarShowroom"); the boss walks there. */
+function nearZone(byZone: Map<string, Vec3[]>, zone: string): Vec3[] {
+  const stem = zone.replace(/^Zone/i, "").toLowerCase();
+  if (stem.length < 4) return [];
+  return [...byZone.entries()].filter(([k]) => k.toLowerCase().includes(stem)).flatMap(([, v]) => v);
 }
 
 function exitFaction(e: SptExit): string {
