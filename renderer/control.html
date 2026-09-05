@@ -86,7 +86,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <div class="sub">What the app sees right now.</div>
       <div class="notice" id="dataNotice"></div>
       <div class="grid3">
-        <div class="card"><div class="k">Map · state</div><div class="v" id="rMap">—</div><div class="k" id="rSide"></div><select id="mapPick" style="margin-top:8px"></select><div class="k" id="mapSrc">your pick wins in the menu; the game wins in a raid</div></div>
+        <div class="card"><div class="k">Map · state</div><div class="k" id="rGame" style="margin-bottom:4px"></div><div class="v" id="rMap">—</div><div class="k" id="rSide"></div><select id="mapPick" style="margin-top:8px"></select><div class="k" id="mapSrc">your pick wins in the menu; the game wins in a raid</div></div>
         <div class="card"><div class="k">Position feed</div><div class="v" id="rFeed">no fix yet</div><div class="k" id="rFeedSub"></div></div>
         <div class="card"><div class="k">Screenshots folder</div><div class="v" id="rShots">0 files · 0 MB</div><div class="k">deleted as they are read</div></div>
       </div>
@@ -176,6 +176,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
           <div><label class="f">Screenshots folder (the game writes here)</label><input type="text" id="screenshotsFolder"></div>
         </div>
         <div class="k" id="installOk" style="margin-top:6px"></div>
+        <div class="check" style="margin-top:8px"><input type="checkbox" id="startWithWindows"><label for="startWithWindows">Start with Windows and wait in the tray; the maps come out by themselves when Tarkov is running</label></div>
         <button id="bDetect">Detect again</button><button id="bOpenLogs">Open logs folder</button><button id="bOpenShots">Open screenshots folder</button>
       </div>
       <div class="card"><h3>2 · Position feed</h3>
@@ -247,7 +248,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h3 id="h-keys">3 · Hotkeys</h3>
       <p>All five are changeable in Setup ▸ Hotkeys, and each can be switched off. Defaults:</p><ul><li><code>F7</code> / <code>F8</code> map opacity down / up</li><li><code>F9</code> make the overlay clickable (again to hand the mouse back)</li><li><code>F10</code> hide / show the overlay</li><li><code>F6</code> drop a "regroup" ping at your position for the squad</li><li><code>Caps Lock</code> (changeable in Setup ▸ Position feed) hold to stream your position</li></ul><p><b>They must not collide with your Tarkov binds.</b> A hotkey the app registers is taken system-wide: Windows hands it to TarkovMap and Tarkov never sees the press. The app cannot read your Tarkov binds (the game keeps them on its server, not in a file), so check them yourself once. The hold-to-stream key and the screenshot key are different: the app only watches or sends those, Tarkov still receives them.</p>
       <h3 id="h-overlay">4 · The overlay</h3>
-      <p>By default the overlay shows only while Escape from Tarkov or Arena is the active window (the "only while Tarkov is in front" chip on the Raid page); switch it off to keep the overlay on the desktop too. Closing the settings window with its X quits the whole app; use the tray to reopen it while it runs.</p><p>The minimap sits in the corner you choose and turns with you (heading-up) so "ahead" is always up. Rings mark 50 and 100 m. Next to it: quests on this map with the trader's portrait and the distance, extracts and teammates sorted by distance with a direction glyph, and the raid line with the timer. It is click-through, so it never eats a click meant for the game, until you press F9. All sizes and opacities live on the Raid page.</p>
+      <p>You do not start TarkovMap yourself: it registers as a Windows login item (Setup ▸ Game) and waits in the tray. When Tarkov or Arena is running the full map appears on the second monitor; when the game is the active window the overlay appears. When the game closes both go away again.</p><p>By default the overlay shows only while Escape from Tarkov or Arena is the active window (the "only while Tarkov is in front" chip on the Raid page); switch it off to keep the overlay on the desktop too. Closing the settings window with its X quits the whole app; use the tray to reopen it while it runs.</p><p>The minimap sits in the corner you choose and turns with you (heading-up) so "ahead" is always up. Rings mark 50 and 100 m. Next to it: quests on this map with the trader's portrait and the distance, extracts and teammates sorted by distance with a direction glyph, and the raid line with the timer. It is click-through, so it never eats a click meant for the game, until you press F9. All sizes and opacities live on the Raid page.</p>
       <h3 id="h-bigmap">5 · The full map</h3>
       <p>Opens on the second monitor (or with the "Open full map" button). Same imagery and markers, every layer, floors, the flea slider and the ask box. Drag and zoom freely; the minimap is a window onto this map.</p>
       <h3 id="h-base">6 · The map imagery and aligning a render</h3>

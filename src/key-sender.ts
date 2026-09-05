@@ -65,7 +65,7 @@ export function powershellExe(): string {
  *   press            (one immediate press if EFT is foreground)
  *   quit
  * Output lines: `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `fg <process>` (foreground app
- * changed; polled twice a second), `err <text>`.
+ * changed; polled twice a second), `game 1|0` (Tarkov/Arena process exists; polled every 5 s), `err <text>`.
  */
 export const HELPER_SCRIPT = String.raw`
 $ErrorActionPreference = "Continue"
@@ -108,7 +108,7 @@ public static class TkInput {
 }
 "@
 $mode = "manual"; $shotVk = 0x7A; $holdVk = 0x14; $interval = 2000; $inRaid = $false
-$holding = $false; $lastSent = [DateTime]::MinValue; $fgLast = ""; $tick = 0
+$holding = $false; $lastSent = [DateTime]::MinValue; $fgLast = ""; $gLast = $null; $tick = 0
 function Send-Shot {
   $fg = [TkInput]::ForegroundProcess()
   if ($fg -ne "EscapeFromTarkov") { [Console]::Out.WriteLine("skip-foreground " + $fg); return }
@@ -139,6 +139,7 @@ while ($true) {
   }
   $tick++
   if (($tick % 5) -eq 0) { $fgNow = [TkInput]::ForegroundProcess(); if ($fgNow -ne $fgLast) { $fgLast = $fgNow; [Console]::Out.WriteLine("fg " + $fgNow) } }
+  if (($tick % 50) -eq 1) { $gNow = [bool](Get-Process -Name EscapeFromTarkov, EscapeFromTarkovArena -ErrorAction SilentlyContinue); if ($gNow -ne $gLast) { $gLast = $gNow; [Console]::Out.WriteLine("game " + $(if ($gNow) { "1" } else { "0" })) } }
   $now = [DateTime]::UtcNow
   $due = ($now - $lastSent).TotalMilliseconds -ge $interval
   if ($mode -eq "hold") {

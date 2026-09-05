@@ -64,6 +64,8 @@ export interface Settings {
   hotkeys: Hotkeys;
   /** Show the overlay only while Escape from Tarkov / Arena is the foreground window. */
   overlayOnlyInGame: boolean;
+  /** Register the exe as a Windows login item (tray only) so it is already running when Tarkov opens. */
+  startWithWindows: boolean;
   setupDone: boolean;
 }
 
@@ -127,6 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
   extrudeDepth: 4,
   hotkeys: { ...DEFAULT_HOTKEYS },
   overlayOnlyInGame: true,
+  startWithWindows: true,
   setupDone: false,
 };
 
@@ -167,6 +170,7 @@ export function sanitize(s: Settings): Settings {
     manualMapKey: typeof s.manualMapKey === "string" && s.manualMapKey ? s.manualMapKey : null,
     hotkeys: sanitizeHotkeys(s.hotkeys),
     overlayOnlyInGame: s.overlayOnlyInGame !== false,
+    startWithWindows: s.startWithWindows !== false,
   };
 }
 

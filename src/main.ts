@@ -75,6 +75,15 @@ let overlayInteractive = false;
 let overlayHidden = false;
 /** Foreground process name from the key helper ("fg <name>"); "" until the first report. */
 let foregroundApp = "";
+/** Tarkov / Arena process exists (key helper "game 1|0"); null until the first report. */
+let gameRunning: boolean | null = null;
+/** Started by Windows at login (or with --tray): no settings window, wait in the tray for the game. */
+const TRAY_START = process.argv.includes("--tray") || Boolean(app.getLoginItemSettings?.().wasOpenedAtLogin);
+function bigMapWanted(): boolean {
+  if (!settings.bigMapEnabled || bigmapDismissed) return false;
+  if (!settings.overlayOnlyInGame) return true;
+  return gameRunning === true;
+}
 const GAME_PROCESSES = new Set(["EscapeFromTarkov", "EscapeFromTarkovArena", "EscapeFromTarkov_BE", "EscapeFromTarkovArena_BE"]);
 /** The overlay is on screen only when he has not hidden it AND (the game is in front, or the gate is off). */
 function overlayWanted(): boolean {
@@ -88,6 +97,11 @@ function applyOverlayVisibility(): void {
     if (!w || w.isDestroyed()) continue;
     if (want && !w.isVisible()) w.showInactive();
     else if (!want && w.isVisible()) w.hide();
+  }
+  if (bigmap && !bigmap.isDestroyed()) {
+    const wantBig = bigMapWanted();
+    if (wantBig && !bigmap.isVisible()) bigmap.showInactive();
+    else if (!wantBig && bigmap.isVisible()) bigmap.hide();
   }
 }
 
@@ -197,7 +211,7 @@ function createBigMap(): void {
   bigmap.loadFile(resolve(ROOT, "renderer", "bigmap.html"));
   // ready-to-show is not reliable for a never-shown window on a second display (seen 2026-09-05: the
   // window existed, vis=False, no error). Show on whichever fires first, and once more after load.
-  const reveal = () => { if (bigmap && !bigmap.isDestroyed() && !bigmap.isVisible() && !bigmapDismissed) bigmap.showInactive(); };
+  const reveal = () => { if (bigmap && !bigmap.isDestroyed() && !bigmap.isVisible() && bigMapWanted()) bigmap.showInactive(); };
   bigmap.once("ready-to-show", reveal);
   bigmap.webContents.once("did-finish-load", () => setTimeout(reveal, 400));
   setTimeout(reveal, 4000);
@@ -229,11 +243,26 @@ function createTray(): void {
   tray.setContextMenu(trayMenu());
 }
 
+/**
+ * "It should turn on when it sees Tarkov, not when I start it": the app registers itself as a login
+ * item (tray only, --tray) so it is already resident, and the windows come out only while the game
+ * runs. A portable exe must point the login item at the launcher he double-clicks, not at the
+ * per-launch %TEMP% extraction Electron reports as execPath.
+ */
+function applyLoginItem(): void {
+  if (!app.isPackaged) return;
+  const exe = process.env.PORTABLE_EXECUTABLE_FILE || process.execPath;
+  try {
+    app.setLoginItemSettings({ openAtLogin: settings.startWithWindows, path: exe, args: ["--tray"], name: "TarkovMap" });
+  } catch (e) { log(`login item: ${(e as Error).message}`); }
+}
+
 function trayMenu(): Menu {
   return Menu.buildFromTemplate([
     { label: "Open TarkovMap", click: createControl },
     { label: `Show / hide overlay${settings.hotkeys.hide ? ` (${settings.hotkeys.hide})` : ""}`, click: toggleOverlayHidden },
     { label: "Full map window", click: () => { bigmapDismissed = false; if (!bigmap) createBigMap(); bigmap?.show(); } },
+    { label: `Start with Windows${settings.startWithWindows ? "  ✓" : ""}`, click: () => patchSettings({ startWithWindows: !settings.startWithWindows }) },
     { type: "separator" },
     { label: "Quit", click: () => { quitting = true; app.quit(); } },
   ]);
@@ -536,7 +565,7 @@ function snapshot() {
     install: { path: settings.installPath, logsDir: settings.installPath ? logsDirFor(settings.installPath) : null },
     screenshots: feed ? feed.stats() : { files: 0, bytes: 0 },
     tileCache: dirSize(TILE_ROOT()), re3mrCache: dirSize(RE3MR_DIR()), tiles: tileProgress, re3mrProgress,
-    data: dataStatus, overlay: { interactive: overlayInteractive, hidden: overlayHidden }, log: logLines.slice(-60),
+    data: dataStatus, overlay: { interactive: overlayInteractive, hidden: overlayHidden, gameRunning, foregroundApp }, log: logLines.slice(-60),
   };
 }
 
@@ -560,6 +589,7 @@ function patchSettings(patch: Partial<Settings>): void {
   if (before.showTags !== settings.showTags) ensureTagsWindow();
   if (JSON.stringify(before.hotkeys) !== JSON.stringify(settings.hotkeys)) registerHotkeys();
   if (before.overlayOnlyInGame !== settings.overlayOnlyInGame) applyOverlayVisibility();
+  if (before.startWithWindows !== settings.startWithWindows) { applyLoginItem(); tray?.setContextMenu(trayMenu()); }
   if ((currentMap()?.key ?? null) !== beforeMap) onMapChanged();
   else if (before.mapBase !== settings.mapBase || before.mapStyle !== settings.mapStyle) broadcast("map", mapPayloadNow());
   pushSnapshot();
@@ -662,7 +692,8 @@ if (!lock) {
     createTray();
     createOverlay();
     createBigMap();
-    if (!settings.setupDone || process.env.TARKOVMAP_SHOT) createControl();
+    if ((!settings.setupDone && !TRAY_START) || process.env.TARKOVMAP_SHOT) createControl();
+    applyLoginItem();
     armGame();
     armFeed();
     armSender();
@@ -681,6 +712,11 @@ if (!lock) {
     armDebugCapture();
     sender.on("line", (l: string) => {
       if (l.startsWith("fg ")) { foregroundApp = l.slice(3).trim(); applyOverlayVisibility(); return; }
+      if (l.startsWith("game ")) {
+        const now = l.slice(5).trim() === "1";
+        if (gameRunning !== now) { gameRunning = now; log(now ? "Tarkov is running — map windows armed" : "Tarkov closed — back to the tray"); applyOverlayVisibility(); pushSnapshot(); }
+        return;
+      }
       if (l.startsWith("skip-foreground")) broadcast("sender", l); else if (l.startsWith("err")) log(`key: ${l}`);
     });
     sender.on("log", (l: string) => log(l));

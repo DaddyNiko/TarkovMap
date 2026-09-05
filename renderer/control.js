@@ -47,7 +47,7 @@
     $("testOut").textContent = fix ? ` got it: x ${fix.x.toFixed(1)}, height ${fix.y.toFixed(1)}, z ${fix.z.toFixed(1)}, facing ${Math.round(fix.yaw)}°` : " nothing arrived. Is Screenshot bound in EFT to the key above?";
   };
   $("bSave").onclick = async () => { await saveSetup(); $("saveOut").textContent = " saved"; setTimeout(() => ($("saveOut").textContent = ""), 2000); };
-  for (const id of ["installPath", "screenshotsFolder", "screenshotKey", "mode", "holdKey", "intervalMs", "overlayDisplayId", "bigMapDisplayId", "bigMapEnabled", "openrouterKey", "openrouterModel"]) $(id).addEventListener("input", () => (dirtySetup = true));
+  for (const id of ["installPath", "screenshotsFolder", "screenshotKey", "mode", "holdKey", "intervalMs", "overlayDisplayId", "bigMapDisplayId", "bigMapEnabled", "startWithWindows", "openrouterKey", "openrouterModel"]) $(id).addEventListener("input", () => (dirtySetup = true));
   $("mapPick").onchange = () => window.api.selectMap($("mapPick").value || null);
   // Hotkey capture: focus a box, press a chord → Electron accelerator. Backspace/Delete = off.
   const NAMED = { " ": "Space", Tab: "Tab", CapsLock: "Capslock", NumLock: "Numlock", ScrollLock: "Scrolllock", Insert: "Insert", Delete: "Delete", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Escape: "Escape", PrintScreen: "Printscreen", Pause: "Pause" };
@@ -95,7 +95,7 @@
       installPath: $("installPath").value.trim() || null, screenshotsFolder: $("screenshotsFolder").value.trim() || null,
       screenshotKey: $("screenshotKey").value, mode: $("mode").value, holdKey: $("holdKey").value, intervalMs: Number($("intervalMs").value) || 2000,
       overlayDisplayId: $("overlayDisplayId").value ? Number($("overlayDisplayId").value) : null, bigMapDisplayId: $("bigMapDisplayId").value ? Number($("bigMapDisplayId").value) : null,
-      bigMapEnabled: $("bigMapEnabled").checked, openrouterKey: $("openrouterKey").value.trim(), openrouterModel: $("openrouterModel").value.trim() || "openrouter/free", setupDone: true,
+      bigMapEnabled: $("bigMapEnabled").checked, startWithWindows: $("startWithWindows").checked, openrouterKey: $("openrouterKey").value.trim(), openrouterModel: $("openrouterModel").value.trim() || "openrouter/free", setupDone: true,
     };
     dirtySetup = false;
     snap = await window.api.saveSettings(patch);
@@ -110,6 +110,8 @@
     if (document.activeElement !== pick) pick.value = snap.settings.manualMapKey || "";
     const mapName = (snap.maps.find((m) => m.key === snap.mapKey) || {}).name || "no map yet";
     $("rMap").textContent = `${mapName} · ${g.raid}`;
+    const o = snap.overlay || {};
+    $("rGame").textContent = o.gameRunning === true ? `Tarkov is running${o.foregroundApp && /EscapeFromTarkov/.test(o.foregroundApp) ? " and in front — overlay on" : " — overlay shows when it is in front"}` : o.gameRunning === false ? "Tarkov is not running — waiting in the tray" : "checking for Tarkov…";
     $("rSide").textContent = `${g.side === "scav" ? "Scav" : "PMC"}${g.raidId ? " · raid " + g.raidId : ""}`;
     $("mapSrc").textContent = snap.mapSource === "game" ? "map from the game (in raid)" : snap.mapSource === "pick" ? "your pick — the game overrides it in a raid" : "last map the game reported";
     const f = snap.fix;
@@ -209,6 +211,7 @@
       sel.value = s[id] == null ? "" : String(s[id]);
     }
     $("bigMapEnabled").checked = s.bigMapEnabled;
+    $("startWithWindows").checked = s.startWithWindows !== false;
     $("openrouterKey").value = s.openrouterKey;
     document.querySelectorAll(".hk").forEach((inp) => { if (document.activeElement !== inp) inp.value = (s.hotkeys || {})[inp.dataset.hk] || ""; });
     $("openrouterModel").value = s.openrouterModel;
