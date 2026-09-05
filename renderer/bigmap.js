@@ -116,7 +116,7 @@
       st.appendChild(r);
     }
     const lv = document.createElement("span");
-    lv.className = "chip dim"; lv.textContent = "Loot value · waiting for tarkov.dev"; lv.title = "Colours areas by how valuable the loot that can spawn there is. Needs container and loose-loot positions, which only tarkov.dev's API carries; it lights up when the API answers.";
+    lv.className = "chip dim"; lv.textContent = "Loot value · not built yet"; lv.title = "Will colour areas by how valuable the loot that can spawn there is. The loose-loot positions and flea prices are now downloaded; the mode itself is the next build.";
     st.appendChild(lv);
     $("flea").value = snap.settings.fleaMin;
     $("fleaVal").textContent = snap.settings.fleaMin ? snap.settings.fleaMin.toLocaleString() + " ₽" : "off";

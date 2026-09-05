@@ -29,6 +29,7 @@ import { detectInstall, myDocuments } from "./install.js";
 import { CACHE_TTL_MS, featuresFor, fetchFeatures, readCache, writeCache, type FeatureCache } from "./map-features.js";
 import { cacheMapTiles, localTemplate, readSvg, tileTemplates, type FetchProgress } from "./tiles.js";
 import { activeQuestIds, applyQuestEvent, fetchTasks, objectivesOnMap, readTaskCache, writeTaskCache, type QuestBook, type TaskCache } from "./quests.js";
+import { convertJsonMaps, convertJsonTasks, fetchJson, type JsonMapsPayload, type JsonTasksPayload, type Names } from "./tarkov-json.js";
 import { SquadLink, type SquadPing, type SquadState } from "./squad.js";
 import { askModelForIntent, parseFilterPrompt, type FilterIntent } from "./filter-prompt.js";
 import { loadRegistration, register, saveRegistration, sourceFor, SOURCES, type ControlPoint, type Registration } from "./re3mr.js";
@@ -406,6 +407,13 @@ function loadQuests(): void {
 
 // ── tarkov.dev data (markers, quests) ───────────────────────────────────────
 let dataTimer: NodeJS.Timeout | null = null;
+/** The game's English locale keys the JSON API's names are written in (data/offline/names.json). */
+function offlineNames(): Names {
+  try { return JSON.parse(readFileSync(join(ROOT, "data", "offline", "names.json"), "utf8")) as Names; } catch { return {}; }
+}
+function offlineMapIds(): Record<string, string> {
+  try { return JSON.parse(readFileSync(join(ROOT, "data", "offline", "map-ids.json"), "utf8")) as Record<string, string>; } catch { return {}; }
+}
 async function loadData(): Promise<void> {
   features = readCache(FEATURES_FILE()) ?? (existsSync(join(ROOT, "data", "features.json")) ? readCache(join(ROOT, "data", "features.json")) : null);
   tasks = readTaskCache(TASKS_FILE()) ?? (existsSync(join(ROOT, "data", "tasks.json")) ? readTaskCache(join(ROOT, "data", "tasks.json")) : null);
@@ -421,13 +429,26 @@ async function loadData(): Promise<void> {
   const staleT = !tasks || Date.now() - tasks.fetchedAt > CACHE_TTL_MS;
   if (!staleF && !staleT) { dataStatus.features = dataStatus.tasks = "ok"; return; }
   let failed = false;
+  // json.tarkov.dev is what the tarkov.dev site itself runs on and is the route its maintainers
+  // recommend while the GraphQL API is down; GraphQL stays as the second try.
+  const names = offlineNames();
+  const mapIds = () => ({ ...offlineMapIds(), ...(features?.mapIds ?? {}) });
   if (staleF) {
-    try { const maps = await fetchFeatures(); features = { fetchedAt: Date.now(), maps }; writeCache(FEATURES_FILE(), features); dataStatus.features = "ok"; log(`markers refreshed from tarkov.dev (${maps.length} maps)`); mapPayloadCache = { key: null, value: null }; broadcast("map", mapPayloadNow()); }
-    catch (e) { failed = true; dataStatus.lastError = (e as Error).message; }
+    try {
+      let maps: FeatureCache["maps"], ids: Record<string, string> | undefined, via = "json.tarkov.dev";
+      try { const r = convertJsonMaps(await fetchJson<JsonMapsPayload>("maps"), names); maps = r.maps; ids = r.idToKey; }
+      catch (e1) { log(`json.tarkov.dev maps failed (${(e1 as Error).message}) — trying the GraphQL API`); maps = await fetchFeatures(); via = "api.tarkov.dev"; }
+      features = { fetchedAt: Date.now(), maps, mapIds: ids ?? features?.mapIds }; writeCache(FEATURES_FILE(), features); dataStatus.features = "ok";
+      log(`markers refreshed from ${via} (${maps.length} maps)`); mapPayloadCache = { key: null, value: null }; broadcast("map", mapPayloadNow());
+    } catch (e) { failed = true; dataStatus.lastError = (e as Error).message; }
   }
   if (staleT) {
-    try { const list = await fetchTasks(); tasks = { fetchedAt: Date.now(), tasks: list }; writeTaskCache(TASKS_FILE(), tasks); dataStatus.tasks = "ok"; log(`quests refreshed from tarkov.dev (${list.length} tasks)`); }
-    catch (e) { failed = true; dataStatus.lastError = (e as Error).message; }
+    try {
+      let list: TaskCache["tasks"], via = "json.tarkov.dev";
+      try { list = convertJsonTasks(await fetchJson<JsonTasksPayload>("tasks"), mapIds(), names); }
+      catch (e1) { log(`json.tarkov.dev tasks failed (${(e1 as Error).message}) — trying the GraphQL API`); list = await fetchTasks(); via = "api.tarkov.dev"; }
+      tasks = { fetchedAt: Date.now(), tasks: list }; writeTaskCache(TASKS_FILE(), tasks); dataStatus.tasks = "ok"; log(`quests refreshed from ${via} (${list.length} tasks)`);
+    } catch (e) { failed = true; dataStatus.lastError = (e as Error).message; }
   }
   if (failed) {
     dataStatus.nextRetryAt = Date.now() + DATA_RETRY_MS;

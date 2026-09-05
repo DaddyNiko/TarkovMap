@@ -21,8 +21,10 @@ export interface MapFeatures {
   lootContainers: Array<{ position: Vec3; lootContainer: { name: string; normalizedName: string } }>;
   stationaryWeapons: Array<{ position: Vec3; stationaryWeapon: { name: string } }>;
   switches: Array<{ id: string; name: string; position: Vec3 }>;
-  /** Offline snapshot extras (src/offline-data.ts); absent on API data. */
+  /** Extras beyond the GraphQL shape: the offline snapshot (src/offline-data.ts) and the JSON API (src/tarkov-json.ts). */
   pmcSpawns?: Array<{ position: Vec3; zoneName?: string }>;
+  /** Loose-loot spawn points with the item ids that can appear there (JSON API only). */
+  lootLoose?: Array<{ position: Vec3; items: string[] }>;
   source?: "spt";
 }
 
@@ -41,6 +43,8 @@ export const FEATURES_QUERY = `{
 }`;
 
 export interface FeatureCache {
+  /** The game's map ids → our map keys (from the JSON API); tasks need it to name their map. */
+  mapIds?: Record<string, string>;
   fetchedAt: number;
   maps: MapFeatures[];
 }
