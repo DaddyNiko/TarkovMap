@@ -125,7 +125,11 @@
     const tileSize = def.tileSize || 256;
     let base = null, baseSvgEl = null;
     const floorLayers = new Map();
-    const style = options && options.style; // photo|studio|night|null
+    // photo|studio|night|null. "Photo" strips land/trees/water so the satellite tiles show through; on a
+    // map with NO photo tiles (Lighthouse, Streets, Terminal) that left a few outlines on a black void and
+    // read as "the map never loaded" (2026-09-05). Those maps get the full vector fill instead.
+    let style = options && options.style;
+    if (style === "photo" && !def.tilePath) style = "studio";
     const preset = style && window.TMStyle ? window.TMStyle.PRESETS[style] : null;
     if (def.tilePath && (!preset || preset.tiles)) {
       base = TM.tileLayer(def.tilePath, payload.localTemplates[def.tilePath], { tileSize, bounds, className: "tm-base", maxNativeZoom: nativeMax }).addTo(map);

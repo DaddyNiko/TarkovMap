@@ -146,7 +146,7 @@ function ensureTagsWindow(): void {
     const d = overlayDisplay();
     tags = new BrowserWindow({ x: d.bounds.x, y: d.bounds.y, width: d.bounds.width, height: d.bounds.height, frame: false, transparent: true, hasShadow: false, resizable: false, movable: false, skipTaskbar: true, focusable: false, alwaysOnTop: true, show: false, webPreferences: WEB() });
     tags.setAlwaysOnTop(true, "screen-saver");
-    tags.setIgnoreMouseEvents(true, { forward: true });
+    tags.setIgnoreMouseEvents(true);
     tags.setMenuBarVisibility(false);
     tags.loadFile(resolve(ROOT, "renderer", "overlay.html"), { query: { mode: "tags" } });
     tags.once("ready-to-show", () => { if (!overlayHidden) tags?.showInactive(); });
@@ -166,7 +166,7 @@ function wireConsole(w: BrowserWindow, name: string): void {
 
 function applyClickThrough(): void {
   if (!overlay) return;
-  overlay.setIgnoreMouseEvents(!overlayInteractive, { forward: true });
+  overlay.setIgnoreMouseEvents(!overlayInteractive);
   overlay.setFocusable(overlayInteractive);
   if (overlayInteractive) overlay.focus();
   broadcast("overlay-mode", { interactive: overlayInteractive, hidden: overlayHidden });
