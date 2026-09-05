@@ -2626,7 +2626,8 @@
                         "show": false,
                         "extents": [
                             {
-                                "height": [-1, 2]
+                                "height": [-1, 2],
+                                "bounds": [[[-370, -172], [-135, -68], "resort"]]
                             }
                         ]
                     },
@@ -2636,7 +2637,8 @@
                         "show": false,
                         "extents": [
                             {
-                                "height": [2, 1000]
+                                "height": [2, 1000],
+                                "bounds": [[[-370, -172], [-135, -68], "resort"]]
                             }
                         ]
                     },

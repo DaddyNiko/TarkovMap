@@ -113,7 +113,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <div class="card">
         <h3>Base</h3>
         <div id="baseChips"></div>
-        <div class="p">RE3MR's 3D renders (reemr.se, CC BY-NC-SA 4.0, credit shown on the map) are the default wherever one exists and has been aligned. Everything else uses tarkov.dev's photo tiles with our own drawn buildings and roads on top; that style is also the fallback and always available as a filter.</div>
+        <div class="p"><b>Studio</b> is the map drawn by this app from the game's vector data: beige buildings, roads, terrain, and one floor at a time. <b>Night</b> is the same map in a dark palette. <b>3D</b> switches to RE3MR's render (reemr.se, CC BY-NC-SA 4.0, credit shown on the map) on the maps that have one and are aligned. On a floor only that floor's plan is drawn — the ground and the other floors are hidden, not dimmed.</div>
         <div class="sl"><span>Building depth</span><input type="range" id="extrudeDepth" min="0" max="12" step="1"><em id="extrudeDepthV"></em></div>
       </div>
       <div class="card">
@@ -252,7 +252,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h3 id="h-bigmap">5 · The full map</h3>
       <p>Opens on the second monitor (or with the "Open full map" button). Same imagery and markers, every layer, floors, the flea slider and the ask box. Drag and zoom freely; the minimap is a window onto this map.</p>
       <h3 id="h-base">6 · The map imagery and aligning a render</h3>
-      <p>Two sources. <b>RE3MR's 3D renders</b> (reemr.se, Creative Commons BY-NC-SA 4.0; his credit stays on the map) are the default where one exists and is aligned. <b>tarkov.dev's photo tiles with our own drawn buildings and roads</b> are the fallback and a filter you can switch to at any time. Aligning a render means telling the app where game coordinates land on the picture: on the Map page, click the same spot on the render and on the tiles, six or more pairs across the map, and save. The error shown is the average miss in metres; under five is good. Every map ships pre-aligned by me, so this is only for nudging.</p>
+      <p>Three looks. <b>Studio</b> (default) and <b>Night</b> are drawn by this app from the game's vector data — every map, every floor, one floor at a time; Labyrinth and Icebreaker were traced from the game's own tiles because no vector of them exists anywhere. <b>3D</b> is RE3MR's render (reemr.se, Creative Commons BY-NC-SA 4.0; his credit stays on the map) on the seven maps that have one. Aligning a render means telling the app where game coordinates land on the picture: on the Map page, click the same spot on the render and on the tiles, six or more pairs across the map, and save. The error shown is the average miss in metres; under five is good. Every map ships pre-aligned by me, so this is only for nudging.</p>
       <h3 id="h-quests">7 · Quests</h3>
       <p>When the game says a quest started, it appears; when the game says it finished, it disappears. Objectives with a fixed spot get a marker with the trader's face. The first run scans your old logs to seed the list. If a quest is stuck, tick it off on the Quests page.</p>
       <h3 id="h-squad">8 · Squad sharing and pings</h3>

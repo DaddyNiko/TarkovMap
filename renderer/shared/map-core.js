@@ -98,100 +98,122 @@
     return layer;
   };
 
+  /** Floor group ids for maps whose maps.json layers carry no svgLayer (Labs vector from TarkovTracker; traced decks). */
+  const FLOOR_ID_OVERRIDES = { "the-lab": { "Second Level": "Second_Level", "Technical": "Technical_Level" } };
+  TM.floorGroupId = function (def, floorName) {
+    if (!floorName) return null;
+    const o = FLOOR_ID_OVERRIDES[def.key];
+    if (o && o[floorName]) return o[floorName];
+    const l = (def.layers || []).find((x) => x.name === floorName);
+    return (l && l.svgLayer) || floorName;
+  };
+
+  /** Height band [lo, hi] of a floor (from maps.json extents); ground = below the lowest floor band. */
+  TM.floorBand = function (def, floorName) {
+    const layers = def.layers || [];
+    if (!floorName) {
+      let lo = -Infinity, hi = Infinity;
+      for (const l of layers) for (const e of l.extents || []) if (e.height[0] > 0 && e.height[0] < hi) hi = e.height[0];
+      for (const l of layers) for (const e of l.extents || []) if (e.height[1] < 0 && e.height[1] > lo) lo = e.height[1];
+      return [lo, hi];
+    }
+    const l = layers.find((x) => x.name === floorName);
+    if (!l || !l.extents || !l.extents.length) return [-Infinity, Infinity];
+    return [Math.min(...l.extents.map((e) => e.height[0])), Math.max(...l.extents.map((e) => e.height[1]))];
+  };
+
+  /** Labels that belong on a floor: their [bottom, top] band overlaps the floor's band (labels without heights sit on the ground). */
+  TM.labelsForFloor = function (def, floorName) {
+    const labels = def.labels || [];
+    const [lo, hi] = TM.floorBand(def, floorName);
+    return labels.filter((l) => {
+      if (l.bottom == null || l.top == null) return !floorName;
+      const b = Math.min(l.bottom, l.top), t = Math.max(l.bottom, l.top);
+      return t > lo && b < hi;
+    });
+  };
+
   /**
-   * Build a map into `el` for a map payload {def, svg, localTemplates}.
-   * Returns {map, setFloor(name|null), floors[]}.
+   * Build a map into `el` for a map payload {def, svg, localTemplates, re3mr}.
+   * options: { base: "re3mr"|"vector", style: "studio"|"night", extrudeDepth, ...leaflet options }
+   * Returns {map, setFloor(name|null), floors[], bounds, def, base, credit}.
+   * The vector base draws the styled SVG; photo tiles only when a map has no vector at all.
+   * A floor is EXCLUSIVE: setFloor(name) swaps the whole styled SVG for that floor's plan (cached per floor).
    */
   TM.buildMap = function (el, payload, options) {
+    options = options || {};
     const def = payload.def;
-    const useRe3mr = Boolean(payload.re3mr && options && options.base === "re3mr");
+    const useRe3mr = Boolean(payload.re3mr && options.base === "re3mr");
+    const style = options.style === "night" ? "night" : "studio";
     const crs = useRe3mr ? TM.crsAffine(payload.re3mr.affine, payload.re3mr.maxZoom, payload.re3mr.homography) : TM.crsFor(def);
     const bounds = TM.boundsFor(def);
     const nativeMax = useRe3mr ? payload.re3mr.maxZoom : def.maxZoom || 6;
+    const leafletOpts = Object.assign({
+      crs, zoomControl: false, attributionControl: false, minZoom: useRe3mr ? 0 : Math.max(1, (def.minZoom || 2) - 1), maxZoom: nativeMax + 2,
+      zoomSnap: 0.25, zoomDelta: 0.5, inertia: true, fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false, doubleClickZoom: false,
+    }, options);
+    delete leafletOpts.base; delete leafletOpts.style; delete leafletOpts.extrudeDepth;
+    const map = L.map(el, leafletOpts);
+    const floors = (def.layers || []).map((l) => l.name);
+    const floorIds = payload.svgTraced ? floors : null; // traced maps name their deck groups after the layer
+    const tileSize = def.tileSize || 256;
+    const hasVector = Boolean(payload.svg && window.TMStyle);
+    const depth = options.extrudeDepth == null ? undefined : options.extrudeDepth;
+    let current = null, credit = null;
+    const styledCache = new Map(); // floor name|"" → styled svg element
+    // Which floors the vector actually draws. Reserve's and Customs' upper floors exist only as
+    // tarkov.dev tile plans (no SVG group), so "exclusive" for them means the tile plan alone —
+    // hiding the ground and drawing nothing is the one outcome that is never right.
+    const groupIds = hasVector ? window.TMStyle.groupIds(payload.svg).map((g) => g.toLowerCase()) : [];
+    const planExists = (floorName) => { const id = TM.floorGroupId(def, floorName); return Boolean(id) && groupIds.includes(id.toLowerCase()); };
+    const tileFloorFor = (floorName) => { const l = (def.layers || []).find((x) => x.name === floorName); return l && l.tilePath ? l : null; };
+    const styled = (floorName) => {
+      const k = floorName || "";
+      if (!styledCache.has(k)) styledCache.set(k, window.TMStyle.style(payload.svg, style, { depth, floor: TM.floorGroupId(def, floorName), floorIds }));
+      return styledCache.get(k);
+    };
+
     if (useRe3mr) {
       const R = payload.re3mr;
-      const map = L.map(el, Object.assign({
-        crs, zoomControl: false, attributionControl: false, minZoom: 0, maxZoom: R.maxZoom + 2,
-        zoomSnap: 0.25, zoomDelta: 0.5, inertia: true, fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false, doubleClickZoom: false,
-      }, options || {}));
+      credit = R.credit;
       const base = L.tileLayer(R.template, { tileSize: 256, maxNativeZoom: R.maxZoom, minNativeZoom: 0, className: "tm-base", keepBuffer: 4, updateWhenZooming: false, noWrap: true }).addTo(map);
-      // Floors on a RE3MR base: the tarkov.dev floor outlines as a light SVG overlay (rooms) when present.
-      const floors = (def.layers || []).map((l) => l.name);
-      let current = null;
       let floorOverlay = null;
       const setFloor = (name) => {
         if (name === current) return;
         current = name;
         if (floorOverlay) { map.removeLayer(floorOverlay); floorOverlay = null; }
-        base.getContainer() && base.getContainer().classList.toggle("tm-dim", Boolean(name));
-        const l = (def.layers || []).find((x) => x.name === name);
-        if (l && l.svgLayer && payload.svg && window.TMStyle) {
-          const styled = window.TMStyle.floorOnly(payload.svg, l.svgLayer);
-          if (styled) floorOverlay = L.svgOverlay(styled, bounds, { className: "tm-floor-svg", interactive: false }).addTo(map);
-        }
+        // on a floor the render is hidden: only that floor's plan shows (exclusive, like the vector base)
+        const plan = name && hasVector && planExists(name) ? "vector" : name && tileFloorFor(name) ? "tile" : null;
+        if (base.getContainer()) base.getContainer().style.display = plan ? "none" : "";
+        if (plan === "vector") floorOverlay = L.svgOverlay(styled(name), bounds, { className: "tm-style", interactive: false }).addTo(map);
+        else if (plan === "tile") { const l = tileFloorFor(name); floorOverlay = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: def.maxZoom || 6 }).addTo(map); }
       };
-      return { map, setFloor, floors, bounds, def, base: "re3mr", credit: R.credit };
+      return { map, setFloor, floors, bounds, def, base: "re3mr", credit };
     }
-    const map = L.map(el, Object.assign({
-      crs, zoomControl: false, attributionControl: false, minZoom: Math.max(1, (def.minZoom || 2) - 1), maxZoom: nativeMax + 2,
-      zoomSnap: 0.25, zoomDelta: 0.5, inertia: true, fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false, doubleClickZoom: false,
-    }, options || {}));
-    const tileSize = def.tileSize || 256;
-    let base = null, baseSvgEl = null;
-    const floorLayers = new Map();
-    // photo|studio|night|null. "Photo" strips land/trees/water so the satellite tiles show through; on a
-    // map with NO photo tiles (Lighthouse, Streets, Terminal) that left a few outlines on a black void and
-    // read as "the map never loaded" (2026-09-05). Those maps get the full vector fill instead.
-    let style = options && options.style;
-    if (style === "photo" && !def.tilePath) style = "studio";
-    const preset = style && window.TMStyle ? window.TMStyle.PRESETS[style] : null;
-    if (def.tilePath && (!preset || preset.tiles)) {
-      base = TM.tileLayer(def.tilePath, payload.localTemplates[def.tilePath], { tileSize, bounds, className: "tm-base", maxNativeZoom: nativeMax }).addTo(map);
+
+    // ── vector base (Studio / Night) — photo tiles only when there is no vector at all ────
+    let tileBase = null, floorTile = null, overlay = null;
+    if (!hasVector && def.tilePath) {
+      tileBase = TM.tileLayer(def.tilePath, payload.localTemplates[def.tilePath], { tileSize, bounds, className: "tm-base tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map);
     }
-    if (preset && payload.svg && window.TMStyle) {
-      // Our own styled vector on top of (or instead of) the photo tiles.
-      const styled = window.TMStyle.style(payload.svg, style, { depth: options.extrudeDepth });
-      L.svgOverlay(styled, bounds, { className: "tm-style", interactive: false }).addTo(map);
-      if (!base) base = { getContainer: () => null };
-    } else if (!def.tilePath && payload.svg) {
-      const wrap = document.createElement("div");
-      wrap.innerHTML = payload.svg;
-      baseSvgEl = wrap.querySelector("svg");
-      if (baseSvgEl) {
-        base = L.svgOverlay(baseSvgEl, bounds, { className: "tm-base-svg", interactive: false }).addTo(map);
-      }
-    }
-    const floors = (def.layers || []).map((l) => l.name);
-    for (const l of def.layers || []) {
-      if (l.tilePath) floorLayers.set(l.name, { kind: "tile", layer: TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor", maxNativeZoom: nativeMax }), svgLayer: l.svgLayer });
-      else if (l.svgLayer) floorLayers.set(l.name, { kind: "svg", svgLayer: l.svgLayer });
-    }
-    let current = null;
-    function showSvgGroup(id) {
-      if (!baseSvgEl) return;
-      const root = baseSvgEl.children[0] && baseSvgEl.children[0].tagName === "g" && !baseSvgEl.children[0].id ? baseSvgEl.children[0] : baseSvgEl;
-      for (const g of root.querySelectorAll(":scope > g[id]")) {
-        const isBase = g.id === (def.svgLayer || "Ground_Level");
-        g.style.display = id ? (g.id === id ? "" : isBase ? "" : "none") : isBase ? "" : (floors.some((f) => (floorLayers.get(f) || {}).svgLayer === g.id) ? "none" : "");
-        if (id && isBase && g.id !== id) g.style.opacity = "0.35"; else g.style.opacity = "";
-      }
-    }
-    function setFloor(name) {
-      if (name === current) return;
-      for (const [n, f] of floorLayers) if (f.kind === "tile" && n !== name && map.hasLayer(f.layer)) map.removeLayer(f.layer);
+    const setFloor = (name) => {
+      if (name === current && (overlay || tileBase)) return;
       current = name;
-      const f = name ? floorLayers.get(name) : null;
-      if (f && f.kind === "tile") {
-        f.layer.addTo(map);
-        if (base && base.getContainer) base.getContainer().classList.add("tm-dim");
-        showSvgGroup(f.svgLayer || null);
-      } else {
-        if (base && base.getContainer) base.getContainer().classList.remove("tm-dim");
-        showSvgGroup(f ? f.svgLayer : null);
-      }
-    }
-    showSvgGroup(null);
-    return { map, setFloor, floors, bounds, def };
+      if (overlay) { map.removeLayer(overlay); overlay = null; }
+      if (floorTile) { map.removeLayer(floorTile); floorTile = null; }
+      if (hasVector && name && !planExists(name)) {
+        const l = tileFloorFor(name);
+        if (l) floorTile = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map);
+        else overlay = L.svgOverlay(styled(null), bounds, { className: "tm-style", interactive: false }).addTo(map); // no plan anywhere: the ground beats a blank
+      } else if (hasVector) {
+        overlay = L.svgOverlay(styled(name), bounds, { className: "tm-style", interactive: false }).addTo(map);
+      } else if (name) {
+        const l = (def.layers || []).find((x) => x.name === name);
+        if (l && l.tilePath) { floorTile = TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor tm-f-" + style, maxNativeZoom: nativeMax }).addTo(map); if (tileBase) tileBase.getContainer().style.display = "none"; }
+      } else if (tileBase) tileBase.getContainer().style.display = "";
+    };
+    setFloor(null);
+    return { map, setFloor, floors, bounds, def, base: "vector", credit };
   };
 
   // ── marker factories ────────────────────────────────────────────────────

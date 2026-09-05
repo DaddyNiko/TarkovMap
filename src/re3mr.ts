@@ -28,7 +28,7 @@ export const SOURCES: Re3mrSource[] = [
   { key: "shoreline", url: "https://reemr.se/maps/Shoreline/re3mrShoreline2.png", file: "shoreline.png", credit: "3D map by RE3MR · reemr.se" },
   { key: "lighthouse", url: "https://reemr.se/maps/Lighthouse/re3mrLighthouseVERT.png", file: "lighthouse.png", credit: "3D map by RE3MR · reemr.se" },
   { key: "reserve", url: "https://reemr.se/maps/Reserve/Re3mrReserveLossless.png", file: "reserve.png", credit: "3D map by RE3MR · reemr.se" },
-  { key: "icebreaker", url: "https://reemr.se/maps/Icebreaker/re3mrIcebreaker.png", file: "icebreaker.png", credit: "3D map by RE3MR · reemr.se" },
+  // icebreaker deliberately absent: a 16-deck ship — the render is a poster, not a map to track on.
 ];
 
 export function sourceFor(key: string): Re3mrSource | null {

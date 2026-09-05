@@ -35,6 +35,9 @@ import { loadRegistration, register, saveRegistration, sourceFor, SOURCES, type 
 import { pyramidDir, pyramidDone, slice, type SliceResult } from "./re3mr-slicer.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+if (process.env.TARKOVMAP_USERDATA) app.setPath("userData", process.env.TARKOVMAP_USERDATA);
+/** Debug captures without a single window on screen (offscreen rendering, no tray hooks, no key sender). */
+const HEADLESS = Boolean(process.env.TARKOVMAP_SHOT) && process.env.TARKOVMAP_SHOT_HIDDEN === "1";
 const USER = () => app.getPath("userData");
 const SETTINGS_FILE = () => join(USER(), "settings.json");
 const TILE_ROOT = () => join(USER(), "tiles");
@@ -61,7 +64,7 @@ const trail: Array<{ x: number; z: number; at: number }> = [];
 let gameState: GameState = { ...INITIAL_STATE };
 let features: FeatureCache | null = null;
 let tasks: TaskCache | null = null;
-let dataStatus = { features: "missing" as "ok" | "missing" | "cached", tasks: "missing" as "ok" | "missing" | "cached", lastError: "", nextRetryAt: 0 };
+let dataStatus = { features: "missing" as "ok" | "missing" | "cached" | "offline", tasks: "missing" as "ok" | "missing" | "cached" | "offline", lastError: "", nextRetryAt: 0 };
 let quests: QuestBook = {};
 let squad: SquadLink | null = null;
 let squadState: SquadState = { mates: {}, pings: [] };
@@ -92,6 +95,7 @@ function overlayWanted(): boolean {
   return GAME_PROCESSES.has(foregroundApp);
 }
 function applyOverlayVisibility(): void {
+  if (HEADLESS) return;
   const want = overlayWanted();
   for (const w of [overlay, tags]) {
     if (!w || w.isDestroyed()) continue;
@@ -141,7 +145,7 @@ function bigMapDisplay(): Electron.Display | null {
 }
 
 const PRELOAD = () => resolve(ROOT, "src", "preload.cjs");
-const WEB = () => ({ preload: PRELOAD(), contextIsolation: true, nodeIntegration: false, sandbox: false, webSecurity: false, backgroundThrottling: false });
+const WEB = () => ({ preload: PRELOAD(), contextIsolation: true, nodeIntegration: false, sandbox: false, webSecurity: false, backgroundThrottling: false, offscreen: HEADLESS });
 
 /** The rectangle the HUD window occupies: minimap + panel, scaled, in the chosen corner. */
 function overlayBounds(): Electron.Rectangle {
@@ -211,7 +215,7 @@ function createBigMap(): void {
   bigmap.loadFile(resolve(ROOT, "renderer", "bigmap.html"));
   // ready-to-show is not reliable for a never-shown window on a second display (seen 2026-09-05: the
   // window existed, vis=False, no error). Show on whichever fires first, and once more after load.
-  const reveal = () => { if (bigmap && !bigmap.isDestroyed() && !bigmap.isVisible() && bigMapWanted()) bigmap.showInactive(); };
+  const reveal = () => { if (!HEADLESS && bigmap && !bigmap.isDestroyed() && !bigmap.isVisible() && bigMapWanted()) bigmap.showInactive(); };
   bigmap.once("ready-to-show", reveal);
   bigmap.webContents.once("did-finish-load", () => setTimeout(reveal, 400));
   setTimeout(reveal, 4000);
@@ -223,7 +227,7 @@ function createBigMap(): void {
 function createControl(): void {
   if (control) { control.show(); control.focus(); return; }
   const d = overlayDisplay();
-  control = new BrowserWindow({ width: 1100, height: 760, x: d.workArea.x + Math.round((d.workArea.width - 1100) / 2), y: d.workArea.y + Math.round((d.workArea.height - 760) / 2), minWidth: 860, minHeight: 580, backgroundColor: "#0b0c0e", title: "TarkovMap", icon: iconPath(), autoHideMenuBar: true, webPreferences: WEB() });
+  control = new BrowserWindow({ width: 1100, height: 760, x: d.workArea.x + Math.round((d.workArea.width - 1100) / 2), y: d.workArea.y + Math.round((d.workArea.height - 760) / 2), minWidth: 860, minHeight: 580, backgroundColor: "#0b0c0e", title: "TarkovMap", icon: iconPath(), autoHideMenuBar: true, show: !HEADLESS, webPreferences: WEB() });
   control.loadFile(resolve(ROOT, "renderer", "control.html"), process.env.TARKOVMAP_SHOT_PAGE ? { hash: process.env.TARKOVMAP_SHOT_PAGE } : undefined);
   control.on("close", () => { quitting = true; app.quit(); });
   control.on("closed", () => (control = null));
@@ -407,6 +411,12 @@ async function loadData(): Promise<void> {
   tasks = readTaskCache(TASKS_FILE()) ?? (existsSync(join(ROOT, "data", "tasks.json")) ? readTaskCache(join(ROOT, "data", "tasks.json")) : null);
   dataStatus.features = features ? "cached" : "missing";
   dataStatus.tasks = tasks ? "cached" : "missing";
+  // The game's own data dump (data/offline, built by scripts/fetch-spt-data.mjs) is the floor: scav /
+  // PMC / boss spawns and extract names without any network. Anything from tarkov.dev replaces it.
+  const offlineF = existsSync(join(ROOT, "data", "offline", "features.json")) ? readCache(join(ROOT, "data", "offline", "features.json")) : null;
+  const offlineT = existsSync(join(ROOT, "data", "offline", "tasks.json")) ? readTaskCache(join(ROOT, "data", "offline", "tasks.json")) : null;
+  if (!features && offlineF) { features = { ...offlineF, fetchedAt: 0 }; dataStatus.features = "offline"; }
+  if (!tasks && offlineT) { tasks = { ...offlineT, fetchedAt: 0 }; dataStatus.tasks = "offline"; }
   const staleF = !features || Date.now() - features.fetchedAt > CACHE_TTL_MS;
   const staleT = !tasks || Date.now() - tasks.fetchedAt > CACHE_TTL_MS;
   if (!staleF && !staleT) { dataStatus.features = dataStatus.tasks = "ok"; return; }
@@ -421,7 +431,7 @@ async function loadData(): Promise<void> {
   }
   if (failed) {
     dataStatus.nextRetryAt = Date.now() + DATA_RETRY_MS;
-    log(`tarkov.dev unavailable (${dataStatus.lastError}) — ${features ? "using cached markers" : "no marker data yet"}; retrying in 15 min`);
+    log(`tarkov.dev unavailable (${dataStatus.lastError}) — ${dataStatus.features === "offline" ? "using the game's own spawn data" : features ? "using cached markers" : "no marker data yet"}; retrying in 15 min`);
     if (dataTimer) clearTimeout(dataTimer);
     dataTimer = setTimeout(() => void loadData(), DATA_RETRY_MS);
   } else dataStatus.nextRetryAt = 0;
@@ -541,7 +551,10 @@ function mapPayload(map: MapDef | null) {
     template: pathToFileURL(join(pyramidDir(USER(), map.key), "{z}", "{x}", "{y}.png")).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"),
     maxZoom: sliced.maxZoom, width: sliced.width, height: sliced.height, affine: reg.affine, homography: reg.homography ?? null, errorM: reg.errorM, credit: src.credit,
   } : null;
-  return { def: map, svg: map.svgPath ? readSvg(TILE_ROOT(), map.svgPath) : null, localTemplates: local, features: featuresFor(features, map.normalizedName), re3mr, re3mrAvailable: Boolean(src) };
+  const bundled = join(ROOT, "data", "svg", `${map.key}.svg`);
+  const svg = map.svgPath ? readSvg(TILE_ROOT(), map.svgPath) : existsSync(bundled) ? readFileSync(bundled, "utf8") : null;
+  const svgTraced = !map.svgPath && existsSync(bundled) && map.key !== "the-lab";
+  return { def: map, svg, svgTraced, localTemplates: local, features: featuresFor(features, map.normalizedName), re3mr, re3mrAvailable: Boolean(src) };
 }
 
 let mapPayloadCache: { key: string | null; value: unknown } = { key: null, value: null };
@@ -659,6 +672,7 @@ function registerIpc(): void {
 function armDebugCapture(): void {
   const dir = process.env.TARKOVMAP_SHOT;
   if (!dir) return;
+  if (process.env.TARKOVMAP_SHOT_SEQ) { armSequenceCapture(dir, process.env.TARKOVMAP_SHOT_SEQ); return; }
   const delay = Number(process.env.TARKOVMAP_SHOT_DELAY_MS || 12000);
   setTimeout(async () => {
     mkdirSync(dir, { recursive: true });
@@ -673,6 +687,39 @@ function armDebugCapture(): void {
       } catch (e) { log(`debug: ${name} capture failed: ${(e as Error).message}`); }
     }
   }, delay);
+}
+
+/**
+ * TARKOVMAP_SHOT_SEQ=<json>: [{name, map, style?, base?, fix?:[x,y,z,yaw], wait?}] — one boot, every
+ * map/floor/style in turn, each captured to <dir>/<name>-bigmap.png and -overlay.png, then quit.
+ * Settings are changed in memory only (nothing is saved); the fix is injected, not read from a file.
+ */
+function armSequenceCapture(dir: string, seqFile: string): void {
+  type Step = { name: string; map: string; style?: "studio" | "night"; base?: "vector" | "re3mr"; fix?: [number, number, number, number]; layers?: string[]; wait?: number };
+  const steps = JSON.parse(readFileSync(seqFile, "utf8")) as Step[];
+  const settle = Number(process.env.TARKOVMAP_SHOT_DELAY_MS || 9000);
+  setTimeout(async () => {
+    mkdirSync(dir, { recursive: true });
+    for (const st of steps) {
+      settings = { ...settings, manualMapKey: st.map, mapStyle: st.style ?? "studio", mapBase: st.base ?? "vector", layers: st.layers ? { ...settings.layers, [st.map]: st.layers } : settings.layers };
+      if (st.fix) lastFix = { x: st.fix[0], y: st.fix[1], z: st.fix[2], yaw: st.fix[3], q: [0, 0, 0, 1], file: "", at: Date.now() };
+      mapPayloadCache = { key: null, value: null };
+      broadcast("map", mapPayloadNow());
+      pushSnapshot();
+      await new Promise((r) => setTimeout(r, st.wait ?? 5000));
+      for (const [name, w] of [["overlay", overlay], ["bigmap", bigmap]] as Array<[string, BrowserWindow | null]>) {
+        if (!w || w.isDestroyed()) continue;
+        try {
+          if (name === "overlay") await w.webContents.insertCSS("html{background:#3a3a34 !important}");
+          const img = await w.webContents.capturePage();
+          writeFileSync(join(dir, `${st.name}-${name}.png`), img.toPNG());
+        } catch (e) { log(`debug: ${st.name} ${name} capture failed: ${(e as Error).message}`); }
+      }
+      log(`debug: captured ${st.name}`);
+    }
+    quitting = true;
+    app.quit();
+  }, settle);
 }
 
 // ── Boot ───────────────────────────────────────────────────────────────────
@@ -698,12 +745,8 @@ if (!lock) {
     createTray();
     createOverlay();
     createBigMap();
-    if ((!settings.setupDone && !TRAY_START) || process.env.TARKOVMAP_SHOT) createControl();
-    applyLoginItem();
-    armGame();
-    armFeed();
-    armSender();
-    armSquad();
+    if ((!settings.setupDone && !TRAY_START) || (process.env.TARKOVMAP_SHOT && (!HEADLESS || process.env.TARKOVMAP_SHOT_PAGE))) createControl();
+    if (!HEADLESS) { applyLoginItem(); armGame(); armFeed(); armSender(); armSquad(); }
     // Slice every render that is already on disk but not yet tiled, one at a time, off the boot path —
     // so a map he switches to later is ready instead of showing "slicing" for a minute.
     setTimeout(async () => {

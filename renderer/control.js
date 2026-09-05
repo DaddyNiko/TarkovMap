@@ -3,8 +3,8 @@
   const $ = (id) => document.getElementById(id);
   const KEYS = ["F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PrintScreen","ScrollLock","Pause","Insert","Home","PageUp","PageDown","End","Delete","CapsLock","Tab","Numpad0","Numpad1","Numpad2","Numpad3","Numpad4","Numpad5","Numpad6","Numpad7","Numpad8","Numpad9","NumpadMultiply","NumpadAdd","NumpadSubtract","NumpadDecimal","NumpadDivide","Mouse3","Mouse4","Mouse5"];
   const HOLD = ["CapsLock","LeftShift","LeftCtrl","LeftAlt","RightAlt","Tab","Mouse4","Mouse5","Mouse3","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","Numpad0"];
-  const LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["landmarks", "Places"], ["hud", "Distance text"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
-  const STYLES = [["photo", "Photo 2.5D"], ["studio", "Studio"], ["night", "Night"], ["none", "Plain tiles"]];
+  const LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["landmarks", "Places"], ["hud", "Distance text"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
+  const STYLES = [["studio", "Studio"], ["night", "Night"]];
   const SLIDERS = ["mapOpacity", "overlayScale", "panelOpacity", "minimapSize", "followZoom", "margin", "gameFov", "fleaMin", "extrudeDepth"];
   let snap = null, mapPayload = null;
   let dirtySetup = false;
@@ -125,7 +125,12 @@
     $("log").scrollTop = $("log").scrollHeight;
     const d = snap.data || {};
     const missing = d.features === "missing" || d.tasks === "missing";
-    for (const id of ["dataNotice", "layerNotice", "questNotice"]) { $(id).style.display = missing ? "" : "none"; $(id).textContent = `Marker and quest data from tarkov.dev is not downloaded yet${d.lastError ? " (" + d.lastError + ")" : ""}. Extracts, keys, bosses, scav spawns, containers and quest objectives stay empty until it answers; retrying every 15 minutes${d.nextRetryAt ? ", next at " + new Date(d.nextRetryAt).toLocaleTimeString() : ""}.`; }
+    const offline = d.features === "offline" || d.tasks === "offline";
+    for (const id of ["dataNotice", "layerNotice", "questNotice"]) {
+      $(id).style.display = missing || offline ? "" : "none";
+      if (missing) $(id).textContent = `Marker and quest data from tarkov.dev is not downloaded yet${d.lastError ? " (" + d.lastError + ")" : ""}. Retrying every 15 minutes${d.nextRetryAt ? ", next at " + new Date(d.nextRetryAt).toLocaleTimeString() : ""}.`;
+      else if (offline) $(id).textContent = `Scav, PMC and boss spawns, extract names and quest names come from the game's own data (offline snapshot). Extract pins, keys, containers, loot value and quest markers need tarkov.dev, which is down${d.lastError ? " (" + d.lastError + ")" : ""}; retrying every 15 minutes.`;
+    }
   }
 
   function paintMapPage() {
@@ -134,15 +139,15 @@
     bc.innerHTML = "";
     const hasR = Boolean(mapPayload && mapPayload.re3mr);
     const mk = (label, on, fn, dim) => { const c = document.createElement("span"); c.className = "chip" + (on ? " on" : "") + (dim ? " dim" : ""); c.textContent = label; c.onclick = fn; bc.appendChild(c); };
-    mk(hasR ? "RE3MR 3D render (default)" : "RE3MR 3D render (default when aligned)", snap.settings.mapBase === "re3mr", () => window.api.saveSettings({ mapBase: "re3mr" }));
-    for (const [id, label] of STYLES) mk(label, snap.settings.mapBase === "tiles" && snap.settings.mapStyle === id, () => window.api.saveSettings({ mapBase: "tiles", mapStyle: id }));
+    for (const [id, label] of STYLES) mk(label, snap.settings.mapBase !== "re3mr" && snap.settings.mapStyle === id, () => window.api.saveSettings({ mapBase: "vector", mapStyle: id }));
+    if (mapPayload && mapPayload.re3mrAvailable) mk(hasR ? "3D (RE3MR render)" : "3D (RE3MR render) · preparing", snap.settings.mapBase === "re3mr" && hasR, () => { if (hasR) window.api.saveSettings({ mapBase: "re3mr" }); }, !hasR);
     const ml = $("mapList");
     ml.innerHTML = "";
     for (const m of snap.maps) {
       const p = snap.re3mrProgress && snap.re3mrProgress[m.key];
       const row = document.createElement("div");
       row.className = "maprow";
-      const status = !m.re3mr ? "no render published — photo tiles + our style" : p ? `${p.stage}${p.total > 1 ? ` ${p.done}/${p.total}` : ""}` : m.re3mrReady && m.registered ? `ready · aligned ~${Math.round(m.errorM || 0)} m${(m.errorM || 0) > 8 ? " (rough first pass — refine below)" : ""}` : m.re3mrReady ? "sliced · needs alignment" : m.registered ? `aligned ~${Math.round(m.errorM || 0)} m · not downloaded yet` : "not downloaded";
+      const status = !m.re3mr ? "no 3D render published — Studio / Night only" : p ? `${p.stage}${p.total > 1 ? ` ${p.done}/${p.total}` : ""}` : m.re3mrReady && m.registered ? `ready · aligned ~${Math.round(m.errorM || 0)} m${(m.errorM || 0) > 8 ? " (rough first pass — refine below)" : ""}` : m.re3mrReady ? "sliced · needs alignment" : m.registered ? `aligned ~${Math.round(m.errorM || 0)} m · not downloaded yet` : "not downloaded";
       row.innerHTML = `<span class="n">${m.name}</span><span class="s">${status}</span>`;
       if (m.re3mr && !m.re3mrReady && !p) { const b = document.createElement("button"); b.textContent = "Download + slice"; b.onclick = () => window.api.re3mrPrepare(m.key); row.appendChild(b); }
       if (m.re3mr) { const b = document.createElement("button"); b.textContent = "Align"; b.onclick = () => { $("alignMap").value = m.key; align.load(m.key); }; row.appendChild(b); }

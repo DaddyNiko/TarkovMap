@@ -51,19 +51,19 @@
   function baseChoice() {
     const s = snap.settings;
     if (s.mapBase === "re3mr" && mapPayload && mapPayload.re3mr) return "re3mr";
-    return "tiles";
+    return "vector";
   }
 
   function ensureMap() {
     const key = mapPayload ? mapPayload.def.key : null;
     const base = key ? baseChoice() : null;
     const style = snap.settings.mapStyle;
-    const sig = key ? `${key}|${base}|${base === "tiles" ? style : "-"}|${snap.settings.extrudeDepth}` : null;
+    const sig = key ? `${key}|${base}|${style}|${snap.settings.extrudeDepth}` : null;
     if (!key) { $("status").classList.add("show"); return; }
     if (built && built.sig === sig) return;
     if (built) { built.map.remove(); built = null; }
     $("map").innerHTML = "";
-    const b = TM.buildMap($("map"), mapPayload, { dragging: false, scrollWheelZoom: false, keyboard: false, touchZoom: false, boxZoom: false, zoomAnimation: false, base, style: base === "tiles" && style !== "none" ? style : null, extrudeDepth: snap.settings.extrudeDepth });
+    const b = TM.buildMap($("map"), mapPayload, { dragging: false, scrollWheelZoom: false, keyboard: false, touchZoom: false, boxZoom: false, zoomAnimation: false, base, style, extrudeDepth: snap.settings.extrudeDepth });
     built = { map: b.map, setFloor: b.setFloor, key, base, sig };
     markers = L.layerGroup().addTo(b.map);
     squadLayer = L.layerGroup().addTo(b.map);
@@ -92,7 +92,7 @@
 
   function paintMarkers() {
     if (!built || !snap || !mapPayload) return;
-    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests]);
+    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests, snap.floor]);
     if (key === lastLayersKey) return;
     lastLayersKey = key;
     markers.clearLayers();
@@ -100,7 +100,7 @@
     const def = mapPayload.def;
     const f = mapPayload.features;
     const on = onLayers();
-    if (s.showLabels && on.has("landmarks")) for (const l of def.labels || []) markers.addLayer(L.marker(TM.pos(l.position[0], l.position[1]), { icon: TM.place(l.text, l.size), interactive: false }));
+    if (s.showLabels && on.has("landmarks")) for (const l of TM.labelsForFloor(def, snap.floor)) markers.addLayer(L.marker(TM.pos(l.position[0], l.position[1]), { icon: TM.place(l.text, l.size), interactive: false }));
     if (on.has("extracts")) for (const e of TM.extractsFor(f, snap.game.side)) {
       if (!e.position) continue;
       const color = e.faction === "transit" ? TM.COLORS.transit : e.faction === "scav" ? TM.COLORS.scavExtract : TM.COLORS.extract;
@@ -115,10 +115,12 @@
       if (on.has("keys")) for (const k of f.locks || []) if (k.position) markers.addLayer(L.marker(TM.pos(k.position.x, k.position.z), { icon: TM.dot(TM.COLORS.key, k.key ? k.key.name.replace(/ key$/i, "") : ""), interactive: false }));
       if (on.has("bosses") || on.has("scavs")) for (const sp of f.spawns || []) {
         const cats = (sp.categories || []).map((c) => String(c).toLowerCase());
-        const isBoss = cats.some((c) => /boss|rogue|cultist|raider|sniper/.test(c));
-        const isScav = cats.includes("scav") || cats.includes("all");
-        if ((isBoss && on.has("bosses")) || (isScav && !isBoss && on.has("scavs"))) markers.addLayer(L.marker(TM.pos(sp.position.x, sp.position.z), { icon: TM.dot(isBoss ? TM.COLORS.boss : TM.COLORS.scav, isBoss ? (sp.zoneName || cats.join("/")) : ""), interactive: false }));
+        const isBoss = cats.some((c) => /boss|rogue|cultist|raider/.test(c));
+        const isScav = cats.includes("scav") || cats.includes("all") || cats.includes("sniper");
+        if (isBoss && on.has("bosses")) markers.addLayer(L.marker(TM.pos(sp.position.x, sp.position.z), { icon: TM.pin(TM.COLORS.boss, sp.zoneName || ""), interactive: false }));
+        else if (isScav && !isBoss && on.has("scavs")) markers.addLayer(L.marker(TM.pos(sp.position.x, sp.position.z), { icon: TM.dot(cats.includes("sniper") ? TM.COLORS.hazard : TM.COLORS.scav, ""), interactive: false }));
       }
+      if (on.has("pmc")) for (const sp of f.pmcSpawns || []) markers.addLayer(L.marker(TM.pos(sp.position.x, sp.position.z), { icon: TM.dot(TM.COLORS.squad, ""), interactive: false }));
       if (on.has("hazards")) for (const h of f.hazards || []) if (h.position) markers.addLayer(L.marker(TM.pos(h.position.x, h.position.z), { icon: TM.dot(TM.COLORS.hazard, h.name), interactive: false }));
       if (on.has("containers") || on.has("loot")) for (const c of f.lootContainers || []) if (c.position) markers.addLayer(L.marker(TM.pos(c.position.x, c.position.z), { icon: TM.dot(TM.COLORS.loot, ""), interactive: false }));
       if (on.has("guns")) for (const g of f.stationaryWeapons || []) if (g.position) markers.addLayer(L.marker(TM.pos(g.position.x, g.position.z), { icon: TM.dot(TM.COLORS.gun, g.stationaryWeapon ? g.stationaryWeapon.name : "MG"), interactive: false }));

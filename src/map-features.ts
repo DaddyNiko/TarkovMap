@@ -21,6 +21,9 @@ export interface MapFeatures {
   lootContainers: Array<{ position: Vec3; lootContainer: { name: string; normalizedName: string } }>;
   stationaryWeapons: Array<{ position: Vec3; stationaryWeapon: { name: string } }>;
   switches: Array<{ id: string; name: string; position: Vec3 }>;
+  /** Offline snapshot extras (src/offline-data.ts); absent on API data. */
+  pmcSpawns?: Array<{ position: Vec3; zoneName?: string }>;
+  source?: "spt";
 }
 
 export const FEATURES_QUERY = `{

@@ -55,10 +55,10 @@ export interface Settings {
   lastMapKey: string | null;
   /** A map he picked by hand in the control app; wins while not in a raid. */
   manualMapKey: string | null;
-  /** Base imagery: RE3MR's render when registered, else the photo tiles. */
-  mapBase: "re3mr" | "tiles";
-  /** Our vector style drawn over the base: photo (fallback default) | studio | night | none. */
-  mapStyle: "photo" | "studio" | "night" | "none";
+  /** Base: our vector map (Studio / Night) or RE3MR's 3D render where one exists and is aligned. */
+  mapBase: "vector" | "re3mr";
+  /** The vector look: studio (default) | night. */
+  mapStyle: "studio" | "night";
   extrudeDepth: number;
   /** Global hotkeys as Electron accelerators; "" = off. A key the app takes here never reaches the game. */
   hotkeys: Hotkeys;
@@ -124,8 +124,8 @@ export const DEFAULT_SETTINGS: Settings = {
   manualDone: [],
   lastMapKey: null,
   manualMapKey: null,
-  mapBase: "re3mr",
-  mapStyle: "photo",
+  mapBase: "vector",
+  mapStyle: "studio",
   extrudeDepth: 4,
   hotkeys: { ...DEFAULT_HOTKEYS },
   overlayOnlyInGame: true,
@@ -164,8 +164,8 @@ export function sanitize(s: Settings): Settings {
     openrouterKey: String(s.openrouterKey ?? "").trim(),
     openrouterModel: String(s.openrouterModel || DEFAULT_SETTINGS.openrouterModel),
     manualDone: Array.isArray(s.manualDone) ? s.manualDone.filter((x) => typeof x === "string") : [],
-    mapBase: s.mapBase === "tiles" ? "tiles" : "re3mr",
-    mapStyle: (["photo", "studio", "night", "none"] as const).includes(s.mapStyle) ? s.mapStyle : "photo",
+    mapBase: s.mapBase === "re3mr" ? "re3mr" : "vector",
+    mapStyle: s.mapStyle === "night" ? "night" : "studio",
     extrudeDepth: Math.round(clamp(num(s.extrudeDepth, 4), 0, 12)),
     manualMapKey: typeof s.manualMapKey === "string" && s.manualMapKey ? s.manualMapKey : null,
     hotkeys: sanitizeHotkeys(s.hotkeys),

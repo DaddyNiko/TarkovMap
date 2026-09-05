@@ -1,47 +1,113 @@
-/* TarkovMap style engine: turns tarkov.dev's vector SVG into OUR map.
- * Strips their stylesheet, injects a preset palette, adds road casings and
- * centre lines, extrudes buildings (offset clones under a lit roof), styles
- * floor groups as rooms. Pure DOM work on a parsed SVG; no network. */
+/* TarkovMap style engine — turns a tarkov.dev (or traced / TarkovTracker) map SVG into the Studio
+ * or Night look: terrain palette, road casings + centre lines, extruded beige buildings, floor plans
+ * (rooms, walls, doors, stairs) and ONE floor at a time.
+ *
+ *   TMStyle.style(svgText, "studio"|"night", { floor, floorIds, depth })  → styled <svg> element
+ *   TMStyle.floorGroups(svgText)                                          → floor group ids present
+ *
+ * A floor is EXCLUSIVE: with `floor` set only that group is emitted; the ground level and every other
+ * floor are removed (his call: "hide the other floors, not just darken"). Without `floor`, the ground
+ * level is emitted and every floor group removed. Group ids are the vocabulary tarkov.dev uses
+ * (Ground_Level, Underground_Level, First_Floor … Fifth_Floor, Basement, Bunkers, Tunnels) plus the
+ * traced maps' deck names passed through `floorIds`. Pure DOM work on a parsed SVG; no network. */
 (function () {
   const PRESETS = {
-    photo: { name: "Photo 2.5D", tiles: true, land: "none", trees: "none", treeDot: "none", water: "none", cement: "none", gravel: "none", rock: "none",
-      roofs: ["rgba(224,201,160,.9)", "rgba(217,185,138,.9)", "rgba(230,211,176,.9)", "rgba(205,180,142,.9)"], side: "#4e3d2b", sideLit: "#6b5540", roofEdge: "#3f3224",
-      road: "rgba(150,154,160,.75)", roadCase: "#1e2125", roadCenter: "rgba(240,240,232,.9)", rail: "#7a5a44", fence: "rgba(255,255,255,.5)", floor: "rgba(242,234,216,.92)", roomLine: "#7c6a4e", depth: 4 },
-    studio: { name: "Studio", tiles: false, land: "#6f8a4c", trees: "#3e6a35", treeDot: "#2f5428", water: "#4f86b6", cement: "#cfc8bb", gravel: "#b39664", rock: "#c9c1a6",
+    studio: { name: "Studio", land: "#6f8a4c", trees: "#3e6a35", treeDot: "#2f5428", water: "#4f86b6", cement: "#cfc8bb", gravel: "#b39664", rock: "#c9c1a6",
       roofs: ["#e0c9a0", "#d9b98a", "#e6d3b0", "#cdb48e"], side: "#8a6f4e", sideLit: "#a68662", roofEdge: "#5d4832",
-      road: "#8f9399", roadCase: "#3b3f45", roadCenter: "#d8d8d0", rail: "#7a5a44", fence: "rgba(255,255,255,.45)", floor: "#f2ead8", roomLine: "#7c6a4e", depth: 4 },
-    night: { name: "Night Ops", tiles: false, land: "#232d27", trees: "#1b2f24", treeDot: "#12231a", water: "#1f3a56", cement: "#3f454d", gravel: "#3f3627", rock: "#3d3d38",
+      road: "#8f9399", roadCase: "#3b3f45", roadCenter: "#d8d8d0", rail: "#7a5a44", fence: "rgba(255,255,255,.45)", floor: "#e0c9a0", roomLine: "#7c6a4e",
+      wall: "#4a3f34", stairs: "#2f9e4f", door: "#c98f2a", obstacle: "#9a8f80", depth: 4, tileFilter: "saturate(.75) contrast(1.15) brightness(1.08)" },
+    night: { name: "Night", land: "#232d27", trees: "#1b2f24", treeDot: "#12231a", water: "#1f3a56", cement: "#3f454d", gravel: "#3f3627", rock: "#3d3d38",
       roofs: ["#3a4a5c", "#374559", "#40506a", "#33414f"], side: "#161d26", sideLit: "#243040", roofEdge: "#ffc45c",
-      road: "#b9bcc2", roadCase: "#0b0d10", roadCenter: "#ffffff", rail: "#a0724f", fence: "rgba(255,196,92,.55)", floor: "#4a5668", roomLine: "#ffc45c", depth: 4 },
+      road: "#b9bcc2", roadCase: "#0b0d10", roadCenter: "#ffffff", rail: "#a0724f", fence: "rgba(255,196,92,.55)", floor: "#3a4a5c", roomLine: "#ffc45c",
+      wall: "#ffc45c", stairs: "#6fdc7a", door: "#ffd27a", obstacle: "#4a525e", depth: 4, tileFilter: "brightness(.55) saturate(.35) hue-rotate(190deg)" },
   };
 
   const parser = new DOMParser();
+  const FLOOR_RE = /(_Level|_Floor|^Basement$|^Bunkers$|^Tunnels)/i;
+  const GROUND_RE = /^(Ground_Level|Ground_Floor|First_Level)$/i;
+  const CLASS_RE = /^(building|floor|land|cement|gravel|tarmac|water|trees|rock|wood|fence|railroad|danger|stairs|wall|locked|misc)$/;
+
+  function topGroups(svg) {
+    const gs = [...svg.children].filter((c) => c.tagName === "g");
+    const root = gs.length === 1 && !gs[0].id ? gs[0] : svg;
+    return [...root.querySelectorAll(":scope > g[id]")];
+  }
+
+  /** Every top-level group id (floor plans and ground alike) — buildMap asks this before hiding the ground for a floor. */
+  function groupIds(svgText) {
+    const svg = parser.parseFromString(svgText, "image/svg+xml").documentElement;
+    return topGroups(svg).map((g) => g.id);
+  }
+
+  function floorGroups(svgText) {
+    const svg = parser.parseFromString(svgText, "image/svg+xml").documentElement;
+    return topGroups(svg).map((g) => g.id).filter((id) => FLOOR_RE.test(id) && !GROUND_RE.test(id));
+  }
 
   /**
-   * @param {string} svgText tarkov.dev map SVG
-   * @param {string} presetName photo|studio|night
-   * @param {{depth?:number}} [opts]
-   * @returns {SVGSVGElement}
+   * @param {string} svgText
+   * @param {"studio"|"night"} presetName
+   * @param {{depth?:number, floor?:string|null, floorIds?:string[]|null}} [opts]
    */
   function style(svgText, presetName, opts) {
-    const P = PRESETS[presetName] || PRESETS.photo;
-    const depth = (opts && opts.depth) || P.depth;
+    opts = opts || {};
+    const P = PRESETS[presetName] || PRESETS.studio;
+    const depth = opts.depth == null ? P.depth : opts.depth;
     const doc = parser.parseFromString(svgText, "image/svg+xml");
     const svg = doc.documentElement;
     for (const s of svg.querySelectorAll("style")) s.remove();
-    if (P.tiles) for (const e of svg.querySelectorAll(".land,.trees,.rock,.gravel,.cement,.water,#Ground,#Trees,#Rocks,#Pavement,#Base_Terrain,#Water,#Gravel")) e.remove();
     const st = doc.createElementNS("http://www.w3.org/2000/svg", "style");
     st.textContent = `.land{fill:${P.land}} .trees{fill:url(#tm-canopy)} .water{fill:${P.water}} .cement{fill:${P.cement}} .gravel{fill:${P.gravel}} .rock{fill:${P.rock}} .wood{fill:#7a4b1e} .tarmac{fill:${P.road}}
-      .building{fill:${P.roofs[0]};stroke:${P.roofEdge};stroke-width:.9} .floor{fill:${P.floor};stroke:${P.roomLine};stroke-width:.8} .locked{fill:#c46a6a} .fence{fill:none;stroke:${P.fence};stroke-width:1}
-      .road_tarmac{fill:none;stroke:${P.road}} .road_gravel{fill:none;stroke:${P.gravel === "none" ? "#b39664" : P.gravel}} .road_small{stroke-width:5} .road_medium{stroke-width:8} .road_large{stroke-width:12}
+      .building{fill:${P.roofs[0]};stroke:${P.roofEdge};stroke-width:.9} .floor{fill:${P.floor};stroke:${P.roofEdge};stroke-width:1} .locked{fill:#c46a6a} .fence{fill:none;stroke:${P.fence};stroke-width:1}
+      .road_tarmac{fill:none;stroke:${P.road}} .road_gravel{fill:none;stroke:${P.gravel}} .road_small{stroke-width:5} .road_medium{stroke-width:8} .road_large{stroke-width:12}
       .railroad{fill:none;stroke:${P.rail};stroke-dasharray:6;stroke-width:3} .powerline{fill:none;stroke:rgba(255,206,0,.5);stroke-width:2;stroke-dasharray:6,6} .map_border{fill:none;stroke:none}
-      .danger{fill:red;fill-opacity:.25;stroke:red;stroke-width:2} .task{fill:#000} .stairs{fill:#6fdc7a} .shadow{filter:none} .plane{fill:#fff}`;
+      .danger{fill:red;fill-opacity:.25;stroke:red;stroke-width:2} .danger_small{fill:red;fill-opacity:.35;stroke:red;stroke-width:1} .task{fill:#000} .stairs{fill:${P.stairs}} .shadow{filter:none} .plane{fill:#fff} .misc{fill:${P.cement}}
+      .wall{fill:${P.wall};fill-opacity:.55;stroke:${P.wall};stroke-width:.35} .door{fill:${P.door}} .obstacle{fill:${P.obstacle}} .structure{fill:${P.cement}}`;
     svg.insertBefore(st, svg.firstChild);
     const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
     defs.innerHTML = `<pattern id="tm-canopy" patternUnits="userSpaceOnUse" width="7" height="7"><rect width="7" height="7" fill="${P.trees}"/><circle cx="2" cy="2" r="1.6" fill="${P.treeDot}"/><circle cx="5.5" cy="5" r="1.2" fill="${P.treeDot}"/></pattern>`;
     svg.insertBefore(defs, svg.firstChild);
-    // Roads: casing under, centre line over.
-    for (const roads of svg.querySelectorAll("#Roads,#Normal_Roads,#Highways,#Main_Roads,#High_Roads,#Dirt_Roads")) {
+
+    // Group-level classes (Streets: <g id="buildings" class="building">; Customs nests Trees/Roads/Buildings
+    // INSIDE the land group): every class-less leaf takes the class of its NEAREST classed ancestor.
+    for (const p of svg.querySelectorAll("path,rect,polygon,circle,ellipse")) {
+      if (p.classList.length) continue;
+      const g = p.parentNode && p.parentNode.closest ? p.parentNode.closest("g[class]") : null;
+      if (!g) continue;
+      const cls = [...g.classList].filter((c) => CLASS_RE.test(c));
+      if (cls.length) p.classList.add(...cls);
+    }
+    // <use> copies (Customs' map limit re-uses the land path) would now paint with the referenced shape's
+    // class — the limit is invisible in our styles anyway, so drop such copies outright.
+    for (const u of svg.querySelectorAll("use")) {
+      const g = u.closest("g[class]");
+      if (g && /map_border|limit/i.test(g.getAttribute("class") || "")) u.remove();
+      else { u.style.fill = "none"; u.style.stroke = "none"; }
+    }
+    // Floor-plan vocabulary (Factory, Labs, traced maps): Wall-*, Stairs-*, Obstacles-*, Doors, Rooms, Arrows, Floor-*.
+    for (const g of svg.querySelectorAll("g[id]")) {
+      const id = g.id;
+      const leafs = () => g.querySelectorAll("path,rect,polygon");
+      if (/^Wall/i.test(id)) for (const p of leafs()) p.classList.add("wall");
+      else if (/^Stairs/i.test(id) || /^Arrows$/i.test(id)) for (const p of leafs()) { p.classList.add("stairs"); if (/^Arrows$/i.test(id)) p.removeAttribute("style"); }
+      else if (/^Obstacles/i.test(id)) for (const p of leafs()) p.classList.add("obstacle");
+      else if (/^Doors$/i.test(id)) for (const p of leafs()) { p.classList.add("door"); p.removeAttribute("style"); }
+      else if (/^Rooms$/i.test(id)) for (const p of leafs()) { p.classList.add("floor"); p.removeAttribute("style"); }
+      else if (/^Floor/i.test(id)) for (const p of leafs()) { if (!p.classList.length) p.classList.add("floor"); }
+    }
+
+    // ── floors: exclusive ────
+    const groups = topGroups(svg);
+    const floor = opts.floor || null;
+    const isFloor = (g) => (opts.floorIds ? opts.floorIds.includes(g.id) : FLOOR_RE.test(g.id) && !GROUND_RE.test(g.id));
+    for (const g of groups) {
+      const keep = floor ? g.id.toLowerCase() === floor.toLowerCase() : !isFloor(g);
+      if (!keep) g.remove();
+    }
+
+    // ── roads: casing under, centre line over (any casing of the id) ────
+    for (const roads of svg.querySelectorAll("g[id]")) {
+      if (!/^(roads|normal_roads|highways|main_roads|high_roads|dirt_roads|dirty_roads|dirt_road|small roads|roads_small|roads_medium|roads_unpaved|road)$/i.test(roads.id)) continue;
       if (roads.dataset.tmDone) continue;
       roads.dataset.tmDone = "1";
       const c = roads.cloneNode(true);
@@ -61,13 +127,14 @@
       }
       roads.parentNode.insertBefore(cl, roads.nextSibling);
     }
-    // Buildings: roof colours + extrusion.
-    const b = svg.querySelector("#Buildings");
-    if (b) {
+
+    // ── buildings: roof colours cycled + extrusion (offset darker copies under the roofs) ────
+    const buildingsGroup = [...svg.querySelectorAll("g[id]")].find((g) => /^buildings$/i.test(g.id));
+    if (buildingsGroup) {
       let k = 0;
-      for (const p of b.querySelectorAll(".building")) p.style.fill = P.roofs[k++ % P.roofs.length];
+      for (const p of buildingsGroup.querySelectorAll(".building")) if (p.tagName !== "g" && !p.style.fill) p.style.fill = P.roofs[k++ % P.roofs.length];
       for (let i = depth; i >= 1; i--) {
-        const c = b.cloneNode(true);
+        const c = buildingsGroup.cloneNode(true);
         c.removeAttribute("id");
         c.setAttribute("transform", `translate(${0.4 * i},${0.75 * i})`);
         for (const p of c.querySelectorAll("*")) {
@@ -76,35 +143,11 @@
           p.style.stroke = i === depth ? "rgba(0,0,0,.4)" : "none";
           p.style.strokeWidth = ".6px";
         }
-        b.parentNode.insertBefore(c, b);
+        buildingsGroup.parentNode.insertBefore(c, buildingsGroup);
       }
     }
     return svg;
   }
 
-  /** Only one floor group (rooms), styled, everything else removed — for floors over a photo/RE3MR base. */
-  function floorOnly(svgText, groupId) {
-    const doc = parser.parseFromString(svgText, "image/svg+xml");
-    const svg = doc.documentElement;
-    const g = svg.querySelector("#" + CSS.escape(groupId));
-    if (!g) return null;
-    for (const s of svg.querySelectorAll("style")) s.remove();
-    // keep only the ancestors of g and g itself
-    const keep = new Set();
-    let n = g;
-    while (n && n !== svg) { keep.add(n); n = n.parentNode; }
-    const prune = (node) => {
-      for (const c of [...node.children]) {
-        if (c === g) continue;
-        if (keep.has(c)) prune(c); else if (c.tagName !== "defs") c.remove();
-      }
-    };
-    prune(svg);
-    const st = doc.createElementNS("http://www.w3.org/2000/svg", "style");
-    st.textContent = `.floor{fill:rgba(242,234,216,.85);stroke:#5b4a34;stroke-width:.9} .locked{fill:rgba(196,106,106,.85)} .stairs{fill:#6fdc7a} .building{fill:rgba(242,234,216,.6);stroke:#5b4a34;stroke-width:.9} .shadow{filter:none} *{vector-effect:non-scaling-stroke}`;
-    svg.insertBefore(st, svg.firstChild);
-    return svg;
-  }
-
-  window.TMStyle = { PRESETS, style, floorOnly };
+  window.TMStyle = { PRESETS, style, floorGroups, groupIds, FLOOR_RE, GROUND_RE };
 })();
