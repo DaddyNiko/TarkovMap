@@ -13,7 +13,9 @@
   --red: #ff5a5a;
   --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
 }
+:root { color-scheme: dark; }
 * { box-sizing: border-box; }
+select, option { background: #15181c; color: #fff; }
 html, body { margin: 0; font-family: var(--font); font-feature-settings: "tnum"; color: var(--ink); }
 .leaflet-container { background: #1a1d19; font-family: var(--font); }
 .leaflet-tile { image-rendering: auto; }

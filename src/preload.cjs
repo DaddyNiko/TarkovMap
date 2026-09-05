@@ -1,4 +1,4 @@
-// Preload: the only bridge between the pages and main. Kept small on purpose.
+// Preload: the only bridge between the page and main. Kept tiny on purpose.
 const { contextBridge, ipcRenderer } = require("electron");
 
 const on = (channel) => (cb) => {
@@ -9,7 +9,9 @@ const on = (channel) => (cb) => {
 
 contextBridge.exposeInMainWorld("api", {
   getState: () => ipcRenderer.invoke("state:get"),
+  getMap: () => ipcRenderer.invoke("map:get"),
   saveSettings: (patch) => ipcRenderer.invoke("settings:save", patch),
+  selectMap: (key) => ipcRenderer.invoke("map:select", key),
   press: () => ipcRenderer.invoke("press"),
   testScreenshot: () => ipcRenderer.invoke("test:screenshot"),
   openFolder: (which) => ipcRenderer.invoke("open:folder", which),
@@ -24,14 +26,19 @@ contextBridge.exposeInMainWorld("api", {
   detectInstall: () => ipcRenderer.invoke("detect:install"),
   fetchAllTiles: () => ipcRenderer.invoke("tiles:fetchAll"),
   clearTiles: () => ipcRenderer.invoke("tiles:clear"),
+  refreshData: () => ipcRenderer.invoke("data:refresh"),
   markQuestDone: (id, done) => ipcRenderer.invoke("quest:markDone", id, done),
   listQuests: () => ipcRenderer.invoke("quest:list"),
   ping: (text) => ipcRenderer.invoke("squad:ping", text),
   squadStatus: (flag) => ipcRenderer.invoke("squad:status", flag),
-  filterPrompt: (sentence) => ipcRenderer.invoke("filter:prompt", sentence),
+  filterPrompt: (text) => ipcRenderer.invoke("filter:prompt", text),
   setLayers: (mapKey, on) => ipcRenderer.invoke("layers:set", mapKey, on),
-  selectMap: (key) => ipcRenderer.invoke("map:select", key),
+  re3mrInfo: (key) => ipcRenderer.invoke("re3mr:info", key),
+  re3mrPrepare: (key) => ipcRenderer.invoke("re3mr:prepare", key),
+  re3mrFit: (key, w, h, points) => ipcRenderer.invoke("re3mr:fit", key, w, h, points),
+  re3mrSave: (reg) => ipcRenderer.invoke("re3mr:save", reg),
   onSnapshot: on("snapshot"),
+  onMap: on("map"),
   onTick: on("tick"),
   onTiles: on("tiles"),
   onLog: on("log"),

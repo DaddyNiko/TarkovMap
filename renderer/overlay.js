@@ -1,24 +1,31 @@
-/* Overlay renderer: heading-up minimap, side panel, in-game tags. */
+/* Overlay renderer. Two modes from the query string:
+ *   (default) — the HUD window: heading-up minimap + side panel.
+ *   ?mode=tags — a full-display transparent window that only draws
+ *                teammate / ping tags projected into the game view. */
 (function () {
   const $ = (id) => document.getElementById(id);
-  let snap = null;
-  let built = null; // {map, setFloor, key}
+  const MODE = new URLSearchParams(location.search).get("mode") === "tags" ? "tags" : "hud";
+  let snap = null, mapPayload = null;
+  let built = null; // {map, setFloor, key, base}
   let markers = L.layerGroup();
   let squadLayer = L.layerGroup();
   let meMarker = null;
   let trailLine = null;
   let lastFixAt = 0;
-  let mode = { interactive: false, hidden: false };
+  let lastLayersKey = "";
 
   const RAID_MIN = TM.RAID_MINUTES;
+  const defaultLayers = ["extracts", "quests", "landmarks", "hud", "squad"];
+  const onLayers = () => new Set((snap && mapPayload && snap.settings.layers[mapPayload.def.key]) || defaultLayers);
 
+  // ── HUD layout (window is already sized to the region by main) ─────────
   function layout() {
     if (!snap) return;
     const s = snap.settings;
     const ui = $("ui");
     ui.style.transform = `scale(${s.overlayScale})`;
-    ui.style.width = `${100 / s.overlayScale}vw`;
-    ui.style.height = `${100 / s.overlayScale}vh`;
+    ui.style.width = `${100 / s.overlayScale}%`;
+    ui.style.height = `${100 / s.overlayScale}%`;
     const mm = $("mmwrap");
     const size = s.minimapSize;
     mm.style.width = mm.style.height = `${size}px`;
@@ -37,35 +44,62 @@
     if (corner.startsWith("top")) side.style.top = `${m + 2}px`; else side.style.bottom = `${m + 2}px`;
     side.style.display = s.showHudText || s.showQuests ? "" : "none";
     for (const id of ["ring1", "ring2", "ringl1", "ringl2"]) $(id).style.display = s.rangeRings ? "" : "none";
+    $("credit").style.display = built && built.base === "re3mr" ? "" : "none";
     if (built) setTimeout(() => built.map.invalidateSize(), 50);
   }
 
+  function baseChoice() {
+    const s = snap.settings;
+    if (s.mapBase === "re3mr" && mapPayload && mapPayload.re3mr) return "re3mr";
+    return "tiles";
+  }
+
   function ensureMap() {
-    const key = snap && snap.map ? snap.map.def.key : null;
-    if (!key) { $("status").textContent = "Waiting for a raid…"; $("status").classList.add("show"); return; }
-    if (built && built.key === key) return;
+    const key = mapPayload ? mapPayload.def.key : null;
+    const base = key ? baseChoice() : null;
+    const style = snap.settings.mapStyle;
+    const sig = key ? `${key}|${base}|${base === "tiles" ? style : "-"}|${snap.settings.extrudeDepth}` : null;
+    if (!key) { $("status").classList.add("show"); return; }
+    if (built && built.sig === sig) return;
     if (built) { built.map.remove(); built = null; }
     $("map").innerHTML = "";
-    const b = TM.buildMap($("map"), snap.map, { dragging: false, scrollWheelZoom: false, keyboard: false, touchZoom: false, boxZoom: false, zoomAnimation: false });
-    built = { map: b.map, setFloor: b.setFloor, key };
+    const b = TM.buildMap($("map"), mapPayload, { dragging: false, scrollWheelZoom: false, keyboard: false, touchZoom: false, boxZoom: false, zoomAnimation: false, base, style: base === "tiles" && style !== "none" ? style : null, extrudeDepth: snap.settings.extrudeDepth });
+    built = { map: b.map, setFloor: b.setFloor, key, base, sig };
     markers = L.layerGroup().addTo(b.map);
     squadLayer = L.layerGroup().addTo(b.map);
     meMarker = L.marker(TM.pos(0, 0), { icon: TM.me(), interactive: false, zIndexOffset: 1000 }).addTo(b.map);
-    trailLine = L.polyline([], { className: "tm-trail", interactive: false }).addTo(b.map);
-    b.map.setView(b.bounds.getCenter(), snap.settings.followZoom);
+    trailLine = L.polyline([], { className: "tm-trail", interactive: false, renderer: L.canvas() }).addTo(b.map);
+    b.map.setView(b.bounds.getCenter(), followZoom());
     b.map.on("zoomend", updateRings);
+    lastLayersKey = "";
+    lastFixAt = 0;
     paintMarkers();
     updateRings();
+    $("credit").textContent = b.credit || "";
     $("status").classList.remove("show");
+    layout();
+  }
+
+  /** RE3MR pyramids are denser than tarkov.dev's; keep the same metres-per-pixel. */
+  function followZoom() {
+    const z = snap.settings.followZoom;
+    if (!built || built.base !== "re3mr" || !mapPayload.re3mr) return z;
+    const T = mapPayload.def.transform || [1, 0, 1, 0];
+    const tdPxPerM = T[0] * 2 ** z; // tarkov.dev px/m at zoom z
+    const rPxPerM = Math.sqrt(Math.abs(mapPayload.re3mr.affine.ax * mapPayload.re3mr.affine.by - mapPayload.re3mr.affine.bx * mapPayload.re3mr.affine.ay));
+    return Math.log2(tdPxPerM / rPxPerM) + mapPayload.re3mr.maxZoom;
   }
 
   function paintMarkers() {
-    if (!built || !snap) return;
+    if (!built || !snap || !mapPayload) return;
+    const key = JSON.stringify([[...onLayers()], snap.objectives.map((o) => o.objectiveId), snap.game.side, Boolean(mapPayload.features), snap.settings.showLabels, snap.settings.showQuests]);
+    if (key === lastLayersKey) return;
+    lastLayersKey = key;
     markers.clearLayers();
     const s = snap.settings;
-    const def = snap.map.def;
-    const f = snap.map.features;
-    const on = new Set(s.layers[def.key] || ["extracts", "quests", "landmarks", "hud", "squad"]);
+    const def = mapPayload.def;
+    const f = mapPayload.features;
+    const on = onLayers();
     if (s.showLabels && on.has("landmarks")) for (const l of def.labels || []) markers.addLayer(L.marker(TM.pos(l.position[0], l.position[1]), { icon: TM.place(l.text, l.size), interactive: false }));
     if (on.has("extracts")) for (const e of TM.extractsFor(f, snap.game.side)) {
       if (!e.position) continue;
@@ -95,8 +129,7 @@
   function paintSquad() {
     if (!built || !snap) return;
     squadLayer.clearLayers();
-    const on = new Set(snap.settings.layers[snap.map.def.key] || ["extracts", "quests", "landmarks", "hud", "squad"]);
-    if (!on.has("squad")) return;
+    if (!onLayers().has("squad")) return;
     for (const m of Object.values(snap.squad.mates)) {
       const sub = snap.fix ? TM.fmtM(TM.dist(snap.fix, m)) + (m.floor ? " · " + m.floor : "") : m.floor || "";
       const mk = L.marker(TM.pos(m.x, m.z), { icon: TM.mate(m.name, sub), interactive: false, zIndexOffset: 800 });
@@ -123,7 +156,7 @@
     const c = built.map.getCenter();
     const p0 = built.map.latLngToContainerPoint(c);
     const p1 = built.map.latLngToContainerPoint(TM.pos(c.lng + 100, c.lat));
-    const pxPer100 = Math.abs(p1.x - p0.x);
+    const pxPer100 = Math.hypot(p1.x - p0.x, p1.y - p0.y);
     const px50 = pxPer100 / 2;
     $("ring1").style.width = $("ring1").style.height = `${px50 * 2}px`;
     $("ring2").style.width = $("ring2").style.height = `${pxPer100 * 2}px`;
@@ -138,10 +171,10 @@
     meMarker.setLatLng(ll);
     const now = Date.now();
     const dur = Math.min(2, Math.max(0.3, (snap.settings.intervalMs || 2000) / 1000));
-    if (now - lastFixAt < 15000) built.map.panTo(ll, { animate: true, duration: dur, easeLinearity: 1, noMoveStart: true });
-    else built.map.setView(ll, snap.settings.followZoom, { animate: false });
+    if (now - lastFixAt < 15000 && Math.abs(built.map.getZoom() - followZoom()) < 0.01) built.map.panTo(ll, { animate: true, duration: dur, easeLinearity: 1, noMoveStart: true });
+    else built.map.setView(ll, followZoom(), { animate: false });
     lastFixAt = now;
-    if (snap.settings.showTrail) trailLine.setLatLngs(snap.trail.map((t) => TM.pos(t.x, t.z))); else trailLine.setLatLngs([]);
+    trailLine.setLatLngs(snap.settings.showTrail ? snap.trail.map((t) => TM.pos(t.x, t.z)) : []);
     built.setFloor(snap.floor);
     $("floor").textContent = snap.floor ? shortFloor(snap.floor) : "G";
   }
@@ -158,47 +191,43 @@
     const s = snap.settings;
     const fix = snap.fix;
     const yaw = fix ? fix.yaw : 0;
-    const qEl = $("quests");
-    const tEl = $("targets");
+    const qEl = $("quests"), tEl = $("targets");
     qEl.innerHTML = "";
     tEl.innerHTML = "";
-    if (s.showQuests && snap.map) {
+    if (s.showQuests && mapPayload) {
       const byQuest = new Map();
-      for (const o of snap.objectives) {
-        const e = byQuest.get(o.questId) || { name: o.questName, trader: o.trader, objs: [] };
-        e.objs.push(o);
-        byQuest.set(o.questId, e);
-      }
+      for (const o of snap.objectives) { const e = byQuest.get(o.questId) || { name: o.questName, trader: o.trader, objs: [] }; e.objs.push(o); byQuest.set(o.questId, e); }
       if (byQuest.size) {
         qEl.innerHTML = `<div class="h4">Quests here</div>`;
         for (const [id, q] of byQuest) {
           const nearest = q.objs.filter((o) => o.position && fix).map((o) => TM.dist(fix, o.position)).sort((a, b) => a - b)[0];
-          const desc = q.objs[0].description || "";
           const el = document.createElement("div");
           el.className = "q";
-          el.innerHTML = `<img src="${q.trader.portrait}"><div><b>${TM.esc(q.name)}</b><span class="d">${TM.esc(q.trader.name)} · ${TM.esc(desc.slice(0, 60))}</span></div>${nearest != null ? `<span class="m">${TM.esc(TM.fmtM(nearest).replace(" m", ""))}<em>m</em></span>` : ""}`;
+          el.innerHTML = `<img src="${q.trader.portrait}"><div><b>${TM.esc(q.name)}</b><span class="d">${TM.esc(q.trader.name)} · ${TM.esc((q.objs[0].description || "").slice(0, 60))}</span></div>${nearest != null ? `<span class="m">${Math.round(nearest)}<em>m</em></span>` : ""}`;
           el.title = id;
           qEl.appendChild(el);
         }
+      } else if (snap.data && snap.data.tasks === "missing") {
+        qEl.innerHTML = `<div class="h4">Quests here</div><div class="row"><span class="d">quest data not downloaded yet (tarkov.dev down)</span></div>`;
       }
     }
-    if (s.showHudText && snap.map) {
+    if (s.showHudText && mapPayload) {
       const rows = [];
       if (fix) {
-        for (const e of TM.extractsFor(snap.map.features, snap.game.side)) if (e.position) rows.push({ color: e.faction === "transit" ? TM.COLORS.transit : TM.COLORS.extract, name: e.name, sub: e.faction === "transit" ? "transit" : "", d: TM.dist(fix, e.position), b: TM.bearing(fix, e.position) });
+        for (const e of TM.extractsFor(mapPayload.features, snap.game.side)) if (e.position) rows.push({ color: e.faction === "transit" ? TM.COLORS.transit : TM.COLORS.extract, name: e.name, sub: e.faction === "transit" ? "transit" : "", d: TM.dist(fix, e.position), b: TM.bearing(fix, e.position) });
         for (const m of Object.values(snap.squad.mates)) rows.push({ color: TM.COLORS.squad, name: m.name, sub: (m.moving ? "moving" : "still") + (m.floor ? " · " + m.floor : "") + (m.flag ? " · " + m.flag : ""), d: TM.dist(fix, m), b: TM.bearing(fix, m) });
         for (const p of snap.squad.pings) rows.push({ color: TM.COLORS.ping, name: `${p.name}: ${p.text}`, sub: "", d: TM.dist(fix, p), b: TM.bearing(fix, p) });
       }
       rows.sort((a, b) => a.d - b.d);
       const html = rows.slice(0, 6).map((r) => `<div class="row"><span class="g" style="background:${r.color}"></span><span class="b">${TM.glyph(r.b - yaw)}</span><span class="m">${Math.round(r.d)}<em>m</em></span><span>${TM.esc(r.name)}</span>${r.sub ? `<span class="d">${TM.esc(r.sub)}</span>` : ""}</div>`).join("");
-      tEl.innerHTML = rows.length ? `<div class="h4">Extracts · squad</div>${html}` : "";
+      tEl.innerHTML = rows.length ? `<div class="h4">Extracts · squad</div>${html}` : fix && snap.data && snap.data.features === "missing" ? `<div class="h4">Extracts</div><div class="row"><span class="d">extract data not downloaded yet</span></div>` : "";
     }
     const g = snap.game;
-    const mapName = snap.map ? snap.map.def.name : "No map";
+    const mapName = mapPayload ? mapPayload.def.name : "No map";
     const side = g.side === "scav" ? "Scav" : "PMC";
     let timer = "";
-    if (g.raid === "in-raid" && g.raidStartedAt && snap.map) {
-      const total = (RAID_MIN[snap.map.def.key] || 40) * 60000;
+    if (g.raid === "in-raid" && g.raidStartedAt && mapPayload) {
+      const total = (RAID_MIN[mapPayload.def.key] || 40) * 60000;
       const left = Math.max(0, total - (Date.now() - g.raidStartedAt));
       timer = `<b>${Math.floor(left / 60000)}:${String(Math.floor((left % 60000) / 1000)).padStart(2, "0")}</b>`;
     }
@@ -207,6 +236,7 @@
     $("raidline").innerHTML = `${TM.esc(mapName)} · ${side} ${timer} ${g.raid === "in-raid" ? "" : "· " + g.raid} · <span style="color:${feedAge != null && feedAge < 6 ? "#78e68c" : "rgba(255,255,255,.55)"}">${feedTxt}</span>`;
   }
 
+  // ── tags window ─────────────────────────────────────────────────────────
   function paintTags() {
     const el = $("tags");
     el.innerHTML = "";
@@ -232,37 +262,45 @@
   }
 
   function onSnapshot(s) {
-    const mapChanged = !snap || (snap.map && s.map ? snap.map.def.key !== s.map.def.key : Boolean(snap.map) !== Boolean(s.map));
-    const layersChanged = !snap || JSON.stringify(snap.settings.layers) !== JSON.stringify(s.settings.layers) || snap.objectives.length !== s.objectives.length || snap.game.side !== s.game.side || snap.hasFeatures !== s.hasFeatures;
     const settingsChanged = !snap || JSON.stringify(snap.settings) !== JSON.stringify(s.settings);
     snap = s;
+    if (MODE === "tags") { paintTags(); return; }
     if (settingsChanged) layout();
-    if (mapChanged || !built) ensureMap();
-    if (built && (mapChanged || layersChanged || settingsChanged)) paintMarkers();
+    if (mapPayload && (!built || settingsChanged)) ensureMap();
+    if (built) paintMarkers();
     applyRotation();
     follow();
     paintSquad();
     paintPanel();
-    paintTags();
     if (built) updateRings();
-    $("status").classList.toggle("show", !s.map);
-    if (!s.map) $("status").textContent = s.game.raid === "menu" ? "In menu · waiting for a raid" : "Loading…";
+    $("status").classList.toggle("show", !mapPayload);
+    if (!mapPayload) $("status").textContent = s.game.raid === "menu" ? "In menu · pick a map in TarkovMap or start a raid" : "Loading…";
   }
 
+  function onMap(p) {
+    mapPayload = p;
+    if (MODE === "tags") return;
+    if (snap) ensureMap();
+    if (!p) { if (built) { built.map.remove(); built = null; } $("status").classList.add("show"); }
+  }
+
+  if (MODE === "tags") {
+    document.body.classList.add("tags-only");
+  } else {
+    window.api.onOverlayMode((m) => {
+      $("interact").classList.toggle("show", m.interactive);
+      $("hint").classList.toggle("show", m.interactive);
+      $("hint").textContent = "Interactive · F9 to hand the mouse back · F7/F8 map opacity · F10 hide";
+      if (built) { built.map.dragging[m.interactive ? "enable" : "disable"](); built.map.scrollWheelZoom[m.interactive ? "enable" : "disable"](); }
+    });
+    $("bOpen").onclick = () => window.api.openControl();
+    $("bBig").onclick = () => window.api.showBigMap(true);
+    $("bPing").onclick = () => window.api.ping("regroup");
+    $("bDone").onclick = () => window.api.setOverlayInteractive(false);
+    window.api.onTick(() => { if (snap) paintPanel(); });
+    window.addEventListener("resize", () => layout());
+  }
   window.api.onSnapshot(onSnapshot);
-  window.api.onTick(() => { if (snap) { paintPanel(); } });
-  window.api.onOverlayMode((m) => {
-    mode = m;
-    $("interact").classList.toggle("show", m.interactive);
-    $("hint").classList.toggle("show", m.interactive);
-    $("hint").textContent = "Interactive · F9 to hand the mouse back to the game · F7/F8 map opacity · F10 hide";
-    if (built) built.map.dragging[m.interactive ? "enable" : "disable"]();
-    if (built) built.map.scrollWheelZoom[m.interactive ? "enable" : "disable"]();
-  });
-  $("bOpen").onclick = () => window.api.openControl();
-  $("bBig").onclick = () => window.api.showBigMap(true);
-  $("bPing").onclick = () => window.api.ping("regroup");
-  $("bDone").onclick = () => window.api.setOverlayInteractive(false);
-  window.addEventListener("resize", () => { layout(); paintTags(); });
-  window.api.getState().then(onSnapshot);
+  window.api.onMap(onMap);
+  window.api.getState().then((s) => { mapPayload = s.map; onSnapshot(s); });
 })();

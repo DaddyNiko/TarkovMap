@@ -20,6 +20,9 @@ input[type=text] { width: 100%; font: inherit; font-size: 12px; color: #fff; bac
 #head b { color: #fff; margin-left: 8px; }
 #close { position: absolute; right: 262px; top: 10px; z-index: 900; font-size: 12px; color: #fff; background: rgba(8,9,10,.6); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
 #mates .row { height: 24px; }
+#notice { display: none; font-size: 11px; color: var(--red); background: rgba(255,90,90,.1); border: 1px solid rgba(255,90,90,.35); border-radius: 8px; padding: 6px 8px; margin-bottom: 8px; }
+.chip.dim { opacity: .45; }
+#credit { position: absolute; left: 12px; bottom: 10px; z-index: 900; font-size: 10px; letter-spacing: 1px; color: rgba(255,255,255,.75); background: rgba(8,9,10,.6); padding: 3px 8px; border-radius: 6px; }
 #ans { font-size: 11px; color: var(--dim); margin-top: 4px; min-height: 14px; }
 </style>
 </head>
@@ -27,7 +30,12 @@ input[type=text] { width: 100%; font: inherit; font-size: 12px; color: #fff; bac
 <div id="map"></div>
 <div id="head">TARKOVMAP <b id="title">—</b></div>
 <button id="close">Hide</button>
+<button id="open" style="right:330px">TarkovMap</button>
+<div id="credit"></div>
 <div id="rail">
+  <div id="notice"></div>
+  <h5>Base · style</h5>
+  <div id="styles"></div>
   <h5>Layers</h5>
   <div id="layers"></div>
   <h5>Floor</h5>
@@ -46,6 +54,7 @@ input[type=text] { width: 100%; font: inherit; font-size: 12px; color: #fff; bac
   <div><span class="chip f" data-ping="regroup">regroup</span><span class="chip f" data-ping="loot here">loot here</span><span class="chip f" data-ping="enemy seen">enemy seen</span><span class="chip f" data-ping="extract">extract</span></div>
 </div>
 <script src="../node_modules/leaflet/dist/leaflet.js"></script>
+<script src="shared/style-engine.js"></script>
 <script src="shared/map-core.js"></script>
 <script src="bigmap.js"></script>
 </body>

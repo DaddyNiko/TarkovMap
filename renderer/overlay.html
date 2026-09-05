@@ -7,7 +7,9 @@
 <link rel="stylesheet" href="shared/tm.css">
 <style>
 html, body { background: transparent; overflow: hidden; width: 100vw; height: 100vh; user-select: none; }
-#ui { position: absolute; top: 0; right: 0; width: 100vw; height: 100vh; transform-origin: top right; }
+#ui { position: absolute; top: 0; right: 0; width: 100%; height: 100%; transform-origin: top right; }
+body.tags-only #ui, body.tags-only #status, body.tags-only #interact, body.tags-only #hint { display: none !important; }
+#credit { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); z-index: 700; font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,.75); background: rgba(8,9,10,.55); padding: 2px 7px; border-radius: 6px; white-space: nowrap; }
 #mmwrap { position: absolute; width: 470px; height: 470px; opacity: 0.4; transition: opacity .2s; }
 #mm { position: absolute; inset: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.25), 0 12px 40px rgba(0,0,0,.55); background: rgba(26,29,25,.6); }
 #mm.round { border-radius: 50%; }
@@ -51,6 +53,7 @@ html, body { background: transparent; overflow: hidden; width: 100vw; height: 10
       <div class="ringl" id="ringl1">50 m</div><div class="ringl" id="ringl2">100 m</div>
       <div class="tag" id="north"><i></i>N</div>
       <div class="tag" id="floor" style="left:14px;top:14px">G</div>
+      <div id="credit"></div>
     </div>
   </div>
   <div id="side">
@@ -69,6 +72,7 @@ html, body { background: transparent; overflow: hidden; width: 100vw; height: 10
 </div>
 <div id="hint"></div>
 <script src="../node_modules/leaflet/dist/leaflet.js"></script>
+<script src="shared/style-engine.js"></script>
 <script src="shared/map-core.js"></script>
 <script src="overlay.js"></script>
 </body>

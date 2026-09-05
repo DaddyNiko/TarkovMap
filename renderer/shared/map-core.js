@@ -26,6 +26,28 @@
     });
   };
 
+  /**
+   * CRS for a RE3MR render registered with an affine (game x,z → image px).
+   * The rotation/shear goes into the projection, the translation into the
+   * transformation, so latLng stays [z, x] like every other layer here.
+   */
+  TM.crsAffine = function (a, maxZoom) {
+    const s = 1 / 2 ** maxZoom; // image px at zoom `maxZoom` == 1 map pixel at zoom 0 scaled by 2^z
+    return L.extend({}, L.CRS.Simple, {
+      transformation: new L.Transformation(s, a.cx * s, s, a.cy * s),
+      projection: L.extend({}, L.Projection.LonLat, {
+        project: (ll) => {
+          const x = ll.lng, z = ll.lat;
+          return L.point(a.ax * x + a.bx * z, a.ay * x + a.by * z);
+        },
+        unproject: (p) => {
+          const det = a.ax * a.by - a.bx * a.ay;
+          return L.latLng((-a.ay * p.x + a.ax * p.y) / det, (a.by * p.x - a.bx * p.y) / det);
+        },
+      }),
+    });
+  };
+
   TM.pos = (x, z) => L.latLng(z, x);
   TM.boundsFor = (def) => L.latLngBounds([def.bounds[0][1], def.bounds[0][0]], [def.bounds[1][1], def.bounds[1][0]]);
 
@@ -47,7 +69,9 @@
 
   /** A tile layer that falls back to the remote URL when the local cache misses. */
   TM.tileLayer = function (remote, local, opts) {
-    const layer = L.tileLayer(local || remote, Object.assign({ tileSize: 256, keepBuffer: 4, updateWhenIdle: false, crossOrigin: false }, opts));
+    // maxNativeZoom keeps Leaflet from requesting tiles past the pyramid
+    // (tarkov.dev stops at the map's maxZoom): it upsamples instead of going black.
+    const layer = L.tileLayer(local || remote, Object.assign({ tileSize: 256, keepBuffer: 4, updateWhenIdle: false, updateWhenZooming: false, crossOrigin: false }, opts));
     if (local && local !== remote) {
       layer.on("tileerror", (e) => {
         const img = e.tile;
@@ -66,18 +90,52 @@
    */
   TM.buildMap = function (el, payload, options) {
     const def = payload.def;
-    const crs = TM.crsFor(def);
+    const useRe3mr = Boolean(payload.re3mr && options && options.base === "re3mr");
+    const crs = useRe3mr ? TM.crsAffine(payload.re3mr.affine, payload.re3mr.maxZoom) : TM.crsFor(def);
     const bounds = TM.boundsFor(def);
+    const nativeMax = useRe3mr ? payload.re3mr.maxZoom : def.maxZoom || 6;
+    if (useRe3mr) {
+      const R = payload.re3mr;
+      const map = L.map(el, Object.assign({
+        crs, zoomControl: false, attributionControl: false, minZoom: 0, maxZoom: R.maxZoom + 2,
+        zoomSnap: 0.25, zoomDelta: 0.5, inertia: true, fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false, doubleClickZoom: false,
+      }, options || {}));
+      const base = L.tileLayer(R.template, { tileSize: 256, maxNativeZoom: R.maxZoom, minNativeZoom: 0, className: "tm-base", keepBuffer: 4, updateWhenZooming: false, noWrap: true }).addTo(map);
+      // Floors on a RE3MR base: the tarkov.dev floor outlines as a light SVG overlay (rooms) when present.
+      const floors = (def.layers || []).map((l) => l.name);
+      let current = null;
+      let floorOverlay = null;
+      const setFloor = (name) => {
+        if (name === current) return;
+        current = name;
+        if (floorOverlay) { map.removeLayer(floorOverlay); floorOverlay = null; }
+        base.getContainer() && base.getContainer().classList.toggle("tm-dim", Boolean(name));
+        const l = (def.layers || []).find((x) => x.name === name);
+        if (l && l.svgLayer && payload.svg && window.TMStyle) {
+          const styled = window.TMStyle.floorOnly(payload.svg, l.svgLayer);
+          if (styled) floorOverlay = L.svgOverlay(styled, bounds, { className: "tm-floor-svg", interactive: false }).addTo(map);
+        }
+      };
+      return { map, setFloor, floors, bounds, def, base: "re3mr", credit: R.credit };
+    }
     const map = L.map(el, Object.assign({
-      crs, zoomControl: false, attributionControl: false, minZoom: Math.max(1, (def.minZoom || 2) - 1), maxZoom: (def.maxZoom || 6) + 1,
-      zoomSnap: 0.25, zoomDelta: 0.5, inertia: true, fadeAnimation: false, zoomAnimation: true, markerZoomAnimation: false, doubleClickZoom: false,
+      crs, zoomControl: false, attributionControl: false, minZoom: Math.max(1, (def.minZoom || 2) - 1), maxZoom: nativeMax + 2,
+      zoomSnap: 0.25, zoomDelta: 0.5, inertia: true, fadeAnimation: false, zoomAnimation: false, markerZoomAnimation: false, doubleClickZoom: false,
     }, options || {}));
     const tileSize = def.tileSize || 256;
     let base = null, baseSvgEl = null;
     const floorLayers = new Map();
-    if (def.tilePath) {
-      base = TM.tileLayer(def.tilePath, payload.localTemplates[def.tilePath], { tileSize, bounds, className: "tm-base" }).addTo(map);
-    } else if (payload.svg) {
+    const style = options && options.style; // photo|studio|night|null
+    const preset = style && window.TMStyle ? window.TMStyle.PRESETS[style] : null;
+    if (def.tilePath && (!preset || preset.tiles)) {
+      base = TM.tileLayer(def.tilePath, payload.localTemplates[def.tilePath], { tileSize, bounds, className: "tm-base", maxNativeZoom: nativeMax }).addTo(map);
+    }
+    if (preset && payload.svg && window.TMStyle) {
+      // Our own styled vector on top of (or instead of) the photo tiles.
+      const styled = window.TMStyle.style(payload.svg, style, { depth: options.extrudeDepth });
+      L.svgOverlay(styled, bounds, { className: "tm-style", interactive: false }).addTo(map);
+      if (!base) base = { getContainer: () => null };
+    } else if (!def.tilePath && payload.svg) {
       const wrap = document.createElement("div");
       wrap.innerHTML = payload.svg;
       baseSvgEl = wrap.querySelector("svg");
@@ -87,7 +145,7 @@
     }
     const floors = (def.layers || []).map((l) => l.name);
     for (const l of def.layers || []) {
-      if (l.tilePath) floorLayers.set(l.name, { kind: "tile", layer: TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor" }), svgLayer: l.svgLayer });
+      if (l.tilePath) floorLayers.set(l.name, { kind: "tile", layer: TM.tileLayer(l.tilePath, payload.localTemplates[l.tilePath], { tileSize, bounds, className: "tm-floor", maxNativeZoom: nativeMax }), svgLayer: l.svgLayer });
       else if (l.svgLayer) floorLayers.set(l.name, { kind: "svg", svgLayer: l.svgLayer });
     }
     let current = null;

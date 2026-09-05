@@ -1,6 +1,6 @@
 {
   "name": "tarkovmap",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Live second-monitor GPS map for Escape from Tarkov — reads the game's own screenshot filenames and logs, never the game itself",
