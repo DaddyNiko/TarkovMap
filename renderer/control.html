@@ -188,7 +188,18 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
         </div>
         <button class="pri" id="bTest">Test: wait for one screenshot</button><span id="testOut" class="k"></span>
       </div>
-      <div class="card"><h3>3 · Screens</h3>
+      <div class="card"><h3>3 · Hotkeys</h3>
+        <p class="p">A key the app takes here is <b>swallowed before Tarkov sees it</b>, so pick keys the game does not use, or switch one off. Click a box, press the key (with Ctrl / Alt / Shift if you like); Backspace switches it off. The hold-to-stream key above is different: the app only watches it, Tarkov still gets it.</p>
+        <div class="grid3">
+          <div><label class="f">Ping "regroup" at my spot</label><input type="text" class="hk" data-hk="ping" readonly placeholder="off"></div>
+          <div><label class="f">Map opacity down</label><input type="text" class="hk" data-hk="opacityDown" readonly placeholder="off"></div>
+          <div><label class="f">Map opacity up</label><input type="text" class="hk" data-hk="opacityUp" readonly placeholder="off"></div>
+          <div><label class="f">Make the overlay clickable</label><input type="text" class="hk" data-hk="interact" readonly placeholder="off"></div>
+          <div><label class="f">Hide / show the overlay</label><input type="text" class="hk" data-hk="hide" readonly placeholder="off"></div>
+        </div>
+        <div class="k" id="hkOut" style="margin-top:6px">saved as you press</div>
+      </div>
+      <div class="card"><h3>4 · Screens</h3>
         <div class="grid2">
           <div><label class="f">Overlay on</label><select id="overlayDisplayId"></select></div>
           <div><label class="f">Full map window on</label><select id="bigMapDisplayId"></select></div>
@@ -197,14 +208,14 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
         <div class="sl"><span>Game FOV (vertical)</span><input type="range" id="gameFov" min="40" max="110" step="1"><em id="gameFovV"></em></div>
         <div class="k">Used to place teammate tags over their heads. Match your EFT FOV setting.</div>
       </div>
-      <div class="card"><h3>4 · AI for the "ask" box (optional)</h3>
+      <div class="card"><h3>5 · AI for the "ask" box (optional)</h3>
         <div class="grid2">
           <div><label class="f">OpenRouter API key</label><input type="password" id="openrouterKey" placeholder="sk-or-…"></div>
           <div><label class="f">Model</label><input type="text" id="openrouterModel" placeholder="openrouter/free"></div>
         </div>
         <div class="k" style="margin-top:6px">Only used when the built-in parser doesn't understand a sentence. Free models by default; the sentence is all the model ever sees. Get a key at openrouter.ai/keys. Anyone else using this app pastes their own key here.</div>
       </div>
-      <div class="card"><h3>5 · Storage</h3>
+      <div class="card"><h3>6 · Storage</h3>
         <div class="k">Map tiles cached: <span id="tileSize">—</span> · RE3MR renders: <span id="re3mrSize">—</span></div>
         <button id="bTiles">Download all maps now</button><button class="danger" id="bClearTiles">Clear tile cache</button><button id="bOpenData">Open data folder</button>
       </div>
@@ -234,7 +245,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h3 id="h-first">2 · First run in five steps</h3>
       <ol><li>Setup ▸ Game: the EFT folder is detected from Steam or the BSG launcher. Fix it if wrong.</li><li>In EFT ▸ Settings ▸ Controls, bind <b>Screenshot</b> to the key shown in Setup ▸ Position feed (default <code>F11</code>).</li><li>Pick a mode: <b>Hold</b> (hold Caps Lock in raid and the dot streams), <b>Auto</b> (every 2 s in raid) or <b>Manual</b>.</li><li>Press <b>Test</b>, go into a raid (offline works), tap the screenshot key once. The test shows your coordinates.</li><li>Save. The overlay appears on your main screen; the full map on the second one if you have it.</li></ol>
       <h3 id="h-keys">3 · Hotkeys</h3>
-      <ul><li><code>F7</code> / <code>F8</code> map opacity down / up</li><li><code>F9</code> make the overlay clickable (again to hand the mouse back)</li><li><code>F10</code> hide / show the overlay</li><li><code>F6</code> drop a "regroup" ping at your position for the squad</li><li><code>Caps Lock</code> (changeable) hold to stream your position</li></ul>
+      <p>All five are changeable in Setup ▸ Hotkeys, and each can be switched off. Defaults:</p><ul><li><code>F7</code> / <code>F8</code> map opacity down / up</li><li><code>F9</code> make the overlay clickable (again to hand the mouse back)</li><li><code>F10</code> hide / show the overlay</li><li><code>F6</code> drop a "regroup" ping at your position for the squad</li><li><code>Caps Lock</code> (changeable in Setup ▸ Position feed) hold to stream your position</li></ul><p><b>They must not collide with your Tarkov binds.</b> A hotkey the app registers is taken system-wide: Windows hands it to TarkovMap and Tarkov never sees the press. The app cannot read your Tarkov binds (the game keeps them on its server, not in a file), so check them yourself once. The hold-to-stream key and the screenshot key are different: the app only watches or sends those, Tarkov still receives them.</p>
       <h3 id="h-overlay">4 · The overlay</h3>
       <p>The minimap sits in the corner you choose and turns with you (heading-up) so "ahead" is always up. Rings mark 50 and 100 m. Next to it: quests on this map with the trader's portrait and the distance, extracts and teammates sorted by distance with a direction glyph, and the raid line with the timer. It is click-through, so it never eats a click meant for the game, until you press F9. All sizes and opacities live on the Raid page.</p>
       <h3 id="h-bigmap">5 · The full map</h3>

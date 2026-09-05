@@ -60,7 +60,26 @@ export interface Settings {
   /** Our vector style drawn over the base: photo (fallback default) | studio | night | none. */
   mapStyle: "photo" | "studio" | "night" | "none";
   extrudeDepth: number;
+  /** Global hotkeys as Electron accelerators; "" = off. A key the app takes here never reaches the game. */
+  hotkeys: Hotkeys;
   setupDone: boolean;
+}
+
+export interface Hotkeys { ping: string; opacityDown: string; opacityUp: string; interact: string; hide: string; }
+export const DEFAULT_HOTKEYS: Hotkeys = { ping: "F6", opacityDown: "F7", opacityUp: "F8", interact: "F9", hide: "F10" };
+const ACCEL = /^((Ctrl|Alt|Shift|Super)\+){0,3}(F([1-9]|1\d|2[0-4])|[A-Z0-9]|Space|Tab|Capslock|Numlock|Scrolllock|Insert|Delete|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|Escape|Printscreen|Pause|num[0-9]|numadd|numsub|nummult|numdiv|numdec|[`\-=\[\]\\;',./])$/;
+/** Keep a valid accelerator, blank an invalid one, drop duplicates (the second binding of one key loses). */
+export function sanitizeHotkeys(h: unknown): Hotkeys {
+  const src = (h && typeof h === "object" ? h : {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_HOTKEYS };
+  const seen = new Set<string>();
+  for (const k of Object.keys(DEFAULT_HOTKEYS) as Array<keyof Hotkeys>) {
+    const v = typeof src[k] === "string" ? (src[k] as string).trim() : DEFAULT_HOTKEYS[k];
+    const ok = v === "" ? "" : ACCEL.test(v) ? v : DEFAULT_HOTKEYS[k];
+    out[k] = ok && seen.has(ok.toLowerCase()) ? "" : ok;
+    if (ok) seen.add(ok.toLowerCase());
+  }
+  return out;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -104,6 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mapBase: "re3mr",
   mapStyle: "photo",
   extrudeDepth: 4,
+  hotkeys: { ...DEFAULT_HOTKEYS },
   setupDone: false,
 };
 
@@ -142,6 +162,7 @@ export function sanitize(s: Settings): Settings {
     mapStyle: (["photo", "studio", "night", "none"] as const).includes(s.mapStyle) ? s.mapStyle : "photo",
     extrudeDepth: Math.round(clamp(num(s.extrudeDepth, 4), 0, 12)),
     manualMapKey: typeof s.manualMapKey === "string" && s.manualMapKey ? s.manualMapKey : null,
+    hotkeys: sanitizeHotkeys(s.hotkeys),
   };
 }
 

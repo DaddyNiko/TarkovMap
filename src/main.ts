@@ -49,6 +49,7 @@ let overlay: BrowserWindow | null = null;
 let tags: BrowserWindow | null = null;
 let bigmap: BrowserWindow | null = null;
 let control: BrowserWindow | null = null;
+let bigmapDismissed = false;
 let tray: Tray | null = null;
 let settings: Settings = { ...DEFAULT_SETTINGS };
 let game: GameWatcher | null = null;
@@ -176,8 +177,13 @@ function createBigMap(): void {
   bigmap = new BrowserWindow({ x: d.workArea.x, y: d.workArea.y, width: d.workArea.width, height: d.workArea.height, frame: false, backgroundColor: "#0b0c0e", show: false, title: "TarkovMap — full map", icon: iconPath(), webPreferences: WEB() });
   bigmap.setMenuBarVisibility(false);
   bigmap.loadFile(resolve(ROOT, "renderer", "bigmap.html"));
-  bigmap.once("ready-to-show", () => bigmap?.showInactive());
-  bigmap.on("close", (e) => { if (!quitting) { e.preventDefault(); bigmap?.hide(); } });
+  // ready-to-show is not reliable for a never-shown window on a second display (seen 2026-09-05: the
+  // window existed, vis=False, no error). Show on whichever fires first, and once more after load.
+  const reveal = () => { if (bigmap && !bigmap.isDestroyed() && !bigmap.isVisible() && !bigmapDismissed) bigmap.showInactive(); };
+  bigmap.once("ready-to-show", reveal);
+  bigmap.webContents.once("did-finish-load", () => setTimeout(reveal, 400));
+  setTimeout(reveal, 4000);
+  bigmap.on("close", (e) => { if (!quitting) { e.preventDefault(); bigmapDismissed = true; bigmap?.hide(); } });
   bigmap.on("closed", () => (bigmap = null));
   wireConsole(bigmap, "bigmap");
 }
@@ -202,13 +208,17 @@ function createTray(): void {
   tray = new Tray(img.isEmpty() ? nativeImage.createEmpty() : img.resize({ width: 16, height: 16 }));
   tray.setToolTip("TarkovMap");
   tray.on("double-click", createControl);
-  tray.setContextMenu(Menu.buildFromTemplate([
+  tray.setContextMenu(trayMenu());
+}
+
+function trayMenu(): Menu {
+  return Menu.buildFromTemplate([
     { label: "Open TarkovMap", click: createControl },
-    { label: "Show / hide overlay (F10)", click: toggleOverlayHidden },
-    { label: "Full map window", click: () => { if (!bigmap) createBigMap(); bigmap?.show(); } },
+    { label: `Show / hide overlay${settings.hotkeys.hide ? ` (${settings.hotkeys.hide})` : ""}`, click: toggleOverlayHidden },
+    { label: "Full map window", click: () => { bigmapDismissed = false; if (!bigmap) createBigMap(); bigmap?.show(); } },
     { type: "separator" },
     { label: "Quit", click: () => { quitting = true; app.quit(); } },
-  ]));
+  ]);
 }
 
 // ── Hotkeys ────────────────────────────────────────────────────────────────
@@ -223,11 +233,13 @@ function registerHotkeys(): void {
   const tryReg = (acc: string, fn: () => void) => {
     try { if (!globalShortcut.register(acc, fn)) log(`hotkey ${acc} is taken by another app`); } catch (e) { log(`hotkey ${acc}: ${(e as Error).message}`); }
   };
-  tryReg("F7", () => patchSettings({ mapOpacity: Math.max(0.15, settings.mapOpacity - 0.1) }));
-  tryReg("F8", () => patchSettings({ mapOpacity: Math.min(1, settings.mapOpacity + 0.1) }));
-  tryReg("F9", () => { overlayInteractive = !overlayInteractive; applyClickThrough(); });
-  tryReg("F10", toggleOverlayHidden);
-  tryReg("F6", () => dropPing("regroup"));
+  const h = settings.hotkeys;
+  if (h.opacityDown) tryReg(h.opacityDown, () => patchSettings({ mapOpacity: Math.max(0.15, settings.mapOpacity - 0.1) }));
+  if (h.opacityUp) tryReg(h.opacityUp, () => patchSettings({ mapOpacity: Math.min(1, settings.mapOpacity + 0.1) }));
+  if (h.interact) tryReg(h.interact, () => { overlayInteractive = !overlayInteractive; applyClickThrough(); });
+  if (h.hide) tryReg(h.hide, toggleOverlayHidden);
+  if (h.ping) tryReg(h.ping, () => dropPing("regroup"));
+  tray?.setContextMenu(trayMenu());
 }
 
 // ── Engine wiring ──────────────────────────────────────────────────────────
@@ -494,7 +506,7 @@ function pushSnapshot(): void {
 function patchSettings(patch: Partial<Settings>): void {
   const before = settings;
   const beforeMap = currentMap()?.key ?? null;
-  settings = sanitize({ ...settings, ...patch, layers: patch.layers ?? settings.layers, manualDone: patch.manualDone ?? settings.manualDone });
+  settings = sanitize({ ...settings, ...patch, layers: patch.layers ?? settings.layers, manualDone: patch.manualDone ?? settings.manualDone, hotkeys: { ...settings.hotkeys, ...(patch.hotkeys ?? {}) } });
   saveSettings(SETTINGS_FILE(), settings);
   if (before.installPath !== settings.installPath) armGame();
   if (before.screenshotsFolder !== settings.screenshotsFolder || before.deleteScreenshots !== settings.deleteScreenshots) armFeed();
@@ -503,6 +515,7 @@ function patchSettings(patch: Partial<Settings>): void {
   if (overlay && (before.overlayDisplayId !== settings.overlayDisplayId || before.overlayScale !== settings.overlayScale || before.minimapSize !== settings.minimapSize || before.corner !== settings.corner || before.margin !== settings.margin)) overlay.setBounds(overlayBounds());
   if (before.bigMapDisplayId !== settings.bigMapDisplayId || before.bigMapEnabled !== settings.bigMapEnabled) { bigmap?.destroy(); bigmap = null; createBigMap(); }
   if (before.showTags !== settings.showTags) ensureTagsWindow();
+  if (JSON.stringify(before.hotkeys) !== JSON.stringify(settings.hotkeys)) registerHotkeys();
   if ((currentMap()?.key ?? null) !== beforeMap) onMapChanged();
   else if (before.mapBase !== settings.mapBase || before.mapStyle !== settings.mapStyle) broadcast("map", mapPayloadNow());
   pushSnapshot();
@@ -522,7 +535,7 @@ function registerIpc(): void {
   });
   ipcMain.handle("open:url", (_e, url: string) => { if (/^https?:\/\//.test(url)) void shell.openExternal(url); });
   ipcMain.handle("window:control", () => createControl());
-  ipcMain.handle("window:bigmap", (_e, show: boolean) => { if (!bigmap) createBigMap(); show ? bigmap?.show() : bigmap?.hide(); });
+  ipcMain.handle("window:bigmap", (_e, show: boolean) => { bigmapDismissed = !show; if (!bigmap) createBigMap(); show ? bigmap?.show() : bigmap?.hide(); });
   ipcMain.handle("window:minimize", (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
   ipcMain.handle("window:hide", (e) => BrowserWindow.fromWebContents(e.sender)?.hide());
   ipcMain.handle("overlay:interactive", (_e, v: boolean) => { overlayInteractive = v; applyClickThrough(); });

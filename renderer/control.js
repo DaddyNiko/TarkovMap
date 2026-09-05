@@ -49,6 +49,35 @@
   $("bSave").onclick = async () => { await saveSetup(); $("saveOut").textContent = " saved"; setTimeout(() => ($("saveOut").textContent = ""), 2000); };
   for (const id of ["installPath", "screenshotsFolder", "screenshotKey", "mode", "holdKey", "intervalMs", "overlayDisplayId", "bigMapDisplayId", "bigMapEnabled", "openrouterKey", "openrouterModel"]) $(id).addEventListener("input", () => (dirtySetup = true));
   $("mapPick").onchange = () => window.api.selectMap($("mapPick").value || null);
+  // Hotkey capture: focus a box, press a chord → Electron accelerator. Backspace/Delete = off.
+  const NAMED = { " ": "Space", Tab: "Tab", CapsLock: "Capslock", NumLock: "Numlock", ScrollLock: "Scrolllock", Insert: "Insert", Delete: "Delete", Home: "Home", End: "End", PageUp: "PageUp", PageDown: "PageDown", ArrowUp: "Up", ArrowDown: "Down", ArrowLeft: "Left", ArrowRight: "Right", Escape: "Escape", PrintScreen: "Printscreen", Pause: "Pause" };
+  function accelFrom(e) {
+    if (e.key === "Backspace" || (e.key === "Delete" && !e.ctrlKey)) return "";
+    if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return null;
+    let k = null;
+    if (/^Numpad\d$/.test(e.code)) k = "num" + e.code.slice(6);
+    else if (e.code === "NumpadAdd") k = "numadd"; else if (e.code === "NumpadSubtract") k = "numsub"; else if (e.code === "NumpadMultiply") k = "nummult"; else if (e.code === "NumpadDivide") k = "numdiv"; else if (e.code === "NumpadDecimal") k = "numdec";
+    else if (/^F\d{1,2}$/.test(e.key)) k = e.key;
+    else if (NAMED[e.key]) k = NAMED[e.key];
+    else if (/^[a-z0-9]$/i.test(e.key)) k = e.key.toUpperCase();
+    else if (/^[`\-=\[\]\\;',./]$/.test(e.key)) k = e.key;
+    if (!k) return null;
+    return (e.ctrlKey ? "Ctrl+" : "") + (e.altKey ? "Alt+" : "") + (e.shiftKey ? "Shift+" : "") + k;
+  }
+  document.querySelectorAll(".hk").forEach((inp) => {
+    inp.onfocus = () => { inp.dataset.was = inp.value; inp.value = ""; inp.placeholder = "press a key…"; };
+    inp.onblur = () => { if (!inp.value && inp.dataset.armed !== "off") inp.value = inp.dataset.was || ""; inp.placeholder = "off"; inp.dataset.armed = ""; };
+    inp.onkeydown = async (e) => {
+      e.preventDefault();
+      const acc = accelFrom(e);
+      if (acc === null) return;
+      inp.dataset.armed = acc ? "" : "off"; inp.dataset.was = acc;
+      const fresh = await window.api.saveSettings({ hotkeys: { [inp.dataset.hk]: acc } });
+      const got = fresh.settings.hotkeys[inp.dataset.hk];
+      $("hkOut").textContent = acc && got !== acc ? `${acc} is already used by another action — pick a different key` : acc ? `${acc} saved` : "switched off";
+      inp.value = got; inp.dataset.was = got; inp.blur();
+    };
+  });
   $("ask").onkeydown = async (e) => {
     if (e.key !== "Enter" || !snap || !mapPayload) return;
     const r = await window.api.filterPrompt($("ask").value.trim());
@@ -181,6 +210,7 @@
     }
     $("bigMapEnabled").checked = s.bigMapEnabled;
     $("openrouterKey").value = s.openrouterKey;
+    document.querySelectorAll(".hk").forEach((inp) => { if (document.activeElement !== inp) inp.value = (s.hotkeys || {})[inp.dataset.hk] || ""; });
     $("openrouterModel").value = s.openrouterModel;
     $("tileSize").textContent = `${snap.tileCache.files} files · ${(snap.tileCache.bytes / 1048576).toFixed(0)} MB`;
     $("re3mrSize").textContent = `${snap.re3mrCache.files} files · ${(snap.re3mrCache.bytes / 1048576).toFixed(0)} MB`;
