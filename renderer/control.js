@@ -140,7 +140,7 @@
       const p = snap.re3mrProgress && snap.re3mrProgress[m.key];
       const row = document.createElement("div");
       row.className = "maprow";
-      const status = !m.re3mr ? "no render published — photo tiles + our style" : p ? `${p.stage}${p.total > 1 ? ` ${p.done}/${p.total}` : ""}` : m.re3mrReady && m.registered ? "ready · aligned" : m.re3mrReady ? "sliced · needs alignment" : m.registered ? "aligned · not downloaded yet" : "not downloaded";
+      const status = !m.re3mr ? "no render published — photo tiles + our style" : p ? `${p.stage}${p.total > 1 ? ` ${p.done}/${p.total}` : ""}` : m.re3mrReady && m.registered ? `ready · aligned ~${Math.round(m.errorM || 0)} m${(m.errorM || 0) > 8 ? " (rough first pass — refine below)" : ""}` : m.re3mrReady ? "sliced · needs alignment" : m.registered ? `aligned ~${Math.round(m.errorM || 0)} m · not downloaded yet` : "not downloaded";
       row.innerHTML = `<span class="n">${m.name}</span><span class="s">${status}</span>`;
       if (m.re3mr && !m.re3mrReady && !p) { const b = document.createElement("button"); b.textContent = "Download + slice"; b.onclick = () => window.api.re3mrPrepare(m.key); row.appendChild(b); }
       if (m.re3mr) { const b = document.createElement("button"); b.textContent = "Align"; b.onclick = () => { $("alignMap").value = m.key; align.load(m.key); }; row.appendChild(b); }
@@ -277,7 +277,7 @@
       if (pairs.length >= 3 && info) {
         const r = await window.api.re3mrFit(key, info.sliced ? info.sliced.width : 4000, info.sliced ? info.sliced.height : 3000, pairs);
         if (!r.error) reg = r;
-        $("alignOut").textContent = r.error ? r.error : `${pairs.length} pairs · mean error ${r.errorM.toFixed(1)} m`;
+        $("alignOut").textContent = r.error ? r.error : `${pairs.length} pairs · mean error ${r.errorM.toFixed(1)} m${r.homography ? " (projective; affine alone " + r.affineErrorM.toFixed(1) + " m)" : ""}`;
       } else $("alignOut").textContent = `${pairs.length} pairs (need 3+, 6+ is good)`;
       paint();
     }
@@ -293,8 +293,11 @@
       $("pairs").querySelectorAll("[data-del]").forEach((b) => (b.onclick = () => { pairs.splice(Number(b.dataset.del), 1); fit(); }));
     }
     function residualsOf() {
-      const a = reg.affine, s = reg.pxPerM;
-      return pairs.map(([x, z, px, py]) => Math.hypot(a.ax * x + a.bx * z + a.cx - px, a.ay * x + a.by * z + a.cy - py) / s);
+      const a = reg.affine, s = reg.pxPerM, h = reg.homography;
+      return pairs.map(([x, z, px, py]) => {
+        if (h) { const w = h[6] * x + h[7] * z + h[8]; return Math.hypot((h[0] * x + h[1] * z + h[2]) / w - px, (h[3] * x + h[4] * z + h[5]) / w - py) / s; }
+        return Math.hypot(a.ax * x + a.bx * z + a.cx - px, a.ay * x + a.by * z + a.cy - py) / s;
+      });
     }
     $("bUndo").onclick = () => { if (pending) pending = null; else pairs.pop(); fit(); };
     $("bClearPts").onclick = () => { pairs = []; pending = null; fit(); };

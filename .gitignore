@@ -6,3 +6,5 @@ release/
 settings.json
 *.log
 .tmp-*/
+
+data/re3mr/thumbs/

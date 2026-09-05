@@ -31,7 +31,7 @@ import { cacheMapTiles, localTemplate, readSvg, tileTemplates, type FetchProgres
 import { activeQuestIds, applyQuestEvent, fetchTasks, objectivesOnMap, readTaskCache, writeTaskCache, type QuestBook, type TaskCache } from "./quests.js";
 import { SquadLink, type SquadPing, type SquadState } from "./squad.js";
 import { askModelForIntent, parseFilterPrompt, type FilterIntent } from "./filter-prompt.js";
-import { loadRegistration, register, saveRegistration, sourceFor, type ControlPoint, type Registration } from "./re3mr.js";
+import { loadRegistration, register, saveRegistration, sourceFor, SOURCES, type ControlPoint, type Registration } from "./re3mr.js";
 import { pyramidDir, pyramidDone, slice, type SliceResult } from "./re3mr-slicer.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -73,6 +73,23 @@ const logLines: string[] = [];
 let quitting = false;
 let overlayInteractive = false;
 let overlayHidden = false;
+/** Foreground process name from the key helper ("fg <name>"); "" until the first report. */
+let foregroundApp = "";
+const GAME_PROCESSES = new Set(["EscapeFromTarkov", "EscapeFromTarkovArena", "EscapeFromTarkov_BE", "EscapeFromTarkovArena_BE"]);
+/** The overlay is on screen only when he has not hidden it AND (the game is in front, or the gate is off). */
+function overlayWanted(): boolean {
+  if (overlayHidden) return false;
+  if (!settings.overlayOnlyInGame) return true;
+  return GAME_PROCESSES.has(foregroundApp);
+}
+function applyOverlayVisibility(): void {
+  const want = overlayWanted();
+  for (const w of [overlay, tags]) {
+    if (!w || w.isDestroyed()) continue;
+    if (want && !w.isVisible()) w.showInactive();
+    else if (!want && w.isVisible()) w.hide();
+  }
+}
 
 function log(line: string): void {
   const stamped = `${new Date().toLocaleTimeString()} ${line}`;
@@ -133,7 +150,7 @@ function createOverlay(): void {
   overlay.setMenuBarVisibility(false);
   overlay.loadFile(resolve(ROOT, "renderer", "overlay.html"));
   overlay.once("ready-to-show", () => {
-    if (!overlayHidden) overlay?.showInactive();
+    applyOverlayVisibility();
     applyClickThrough();
   });
   overlay.on("closed", () => (overlay = null));
@@ -149,7 +166,7 @@ function ensureTagsWindow(): void {
     tags.setIgnoreMouseEvents(true);
     tags.setMenuBarVisibility(false);
     tags.loadFile(resolve(ROOT, "renderer", "overlay.html"), { query: { mode: "tags" } });
-    tags.once("ready-to-show", () => { if (!overlayHidden) tags?.showInactive(); });
+    tags.once("ready-to-show", () => applyOverlayVisibility());
     tags.on("closed", () => (tags = null));
     wireConsole(tags, "tags");
   } else if (!want && tags) {
@@ -194,7 +211,7 @@ function createControl(): void {
   const d = overlayDisplay();
   control = new BrowserWindow({ width: 1100, height: 760, x: d.workArea.x + Math.round((d.workArea.width - 1100) / 2), y: d.workArea.y + Math.round((d.workArea.height - 760) / 2), minWidth: 860, minHeight: 580, backgroundColor: "#0b0c0e", title: "TarkovMap", icon: iconPath(), autoHideMenuBar: true, webPreferences: WEB() });
   control.loadFile(resolve(ROOT, "renderer", "control.html"), process.env.TARKOVMAP_SHOT_PAGE ? { hash: process.env.TARKOVMAP_SHOT_PAGE } : undefined);
-  control.on("close", (e) => { if (!quitting) { e.preventDefault(); control?.hide(); } });
+  control.on("close", () => { quitting = true; app.quit(); });
   control.on("closed", () => (control = null));
   control.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: "deny" }; });
   wireConsole(control, "control");
@@ -225,7 +242,7 @@ function trayMenu(): Menu {
 // ── Hotkeys ────────────────────────────────────────────────────────────────
 function toggleOverlayHidden(): void {
   overlayHidden = !overlayHidden;
-  for (const w of [overlay, tags]) if (w) overlayHidden ? w.hide() : w.showInactive();
+  applyOverlayVisibility();
   broadcast("overlay-mode", { interactive: overlayInteractive, hidden: overlayHidden });
 }
 
@@ -314,7 +331,7 @@ function armFeed(): void {
 
 function armSender(): void {
   sender.configure({ mode: settings.mode, screenshotKey: settings.screenshotKey, holdKey: settings.holdKey, intervalMs: settings.intervalMs });
-  if (settings.mode !== "manual") sender.start();
+  sender.start(); // also the foreground-app reporter, so it runs in manual mode too
 }
 
 function armSquad(): void {
@@ -493,7 +510,7 @@ function mapPayload(map: MapDef | null) {
   const src = sourceFor(map.key);
   const re3mr = reg && sliced && src ? {
     template: pathToFileURL(join(pyramidDir(USER(), map.key), "{z}", "{x}", "{y}.png")).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"),
-    maxZoom: sliced.maxZoom, width: sliced.width, height: sliced.height, affine: reg.affine, errorM: reg.errorM, credit: src.credit,
+    maxZoom: sliced.maxZoom, width: sliced.width, height: sliced.height, affine: reg.affine, homography: reg.homography ?? null, errorM: reg.errorM, credit: src.credit,
   } : null;
   return { def: map, svg: map.svgPath ? readSvg(TILE_ROOT(), map.svgPath) : null, localTemplates: local, features: featuresFor(features, map.normalizedName), re3mr, re3mrAvailable: Boolean(src) };
 }
@@ -514,7 +531,7 @@ function snapshot() {
     mapSource: gameState.raid === "in-raid" && gameState.mapKey ? "game" : settings.manualMapKey ? "pick" : "last",
     objectives, activeQuestCount: activeQuestIds(quests).filter((q) => !settings.manualDone.includes(q)).length,
     squad: { ...squadState, pings: [...squadState.pings, ...myPings.filter((p) => p.at + p.ttlMs > Date.now())] },
-    maps: MAPS.map((m) => ({ key: m.key, name: m.name, re3mr: Boolean(sourceFor(m.key)), re3mrReady: re3mrReady.has(m.key), registered: Boolean(registrationFor(m.key)) })),
+    maps: MAPS.map((m) => ({ key: m.key, name: m.name, re3mr: Boolean(sourceFor(m.key)), re3mrReady: re3mrReady.has(m.key), registered: Boolean(registrationFor(m.key)), errorM: registrationFor(m.key)?.errorM ?? null, projective: Boolean(registrationFor(m.key)?.homography) })),
     displays: screen.getAllDisplays().map((d) => ({ id: d.id, label: `${d.label || "Display"} ${d.size.width}×${d.size.height}${d.id === screen.getPrimaryDisplay().id ? " (main)" : ""}`, primary: d.id === screen.getPrimaryDisplay().id })),
     install: { path: settings.installPath, logsDir: settings.installPath ? logsDirFor(settings.installPath) : null },
     screenshots: feed ? feed.stats() : { files: 0, bytes: 0 },
@@ -542,6 +559,7 @@ function patchSettings(patch: Partial<Settings>): void {
   if (before.bigMapDisplayId !== settings.bigMapDisplayId || before.bigMapEnabled !== settings.bigMapEnabled) { bigmap?.destroy(); bigmap = null; createBigMap(); }
   if (before.showTags !== settings.showTags) ensureTagsWindow();
   if (JSON.stringify(before.hotkeys) !== JSON.stringify(settings.hotkeys)) registerHotkeys();
+  if (before.overlayOnlyInGame !== settings.overlayOnlyInGame) applyOverlayVisibility();
   if ((currentMap()?.key ?? null) !== beforeMap) onMapChanged();
   else if (before.mapBase !== settings.mapBase || before.mapStyle !== settings.mapStyle) broadcast("map", mapPayloadNow());
   pushSnapshot();
@@ -649,9 +667,22 @@ if (!lock) {
     armFeed();
     armSender();
     armSquad();
+    // Slice every render that is already on disk but not yet tiled, one at a time, off the boot path —
+    // so a map he switches to later is ready instead of showing "slicing" for a minute.
+    setTimeout(async () => {
+      for (const src of SOURCES) {
+        if (re3mrReady.has(src.key) || !existsSync(join(RE3MR_DIR(), src.file))) continue;
+        if (pyramidDone(USER(), src.key)) { re3mrReady.set(src.key, pyramidDone(USER(), src.key) as SliceResult); continue; }
+        await ensureRe3mr(src.key);
+      }
+      pushSnapshot();
+    }, 20000);
     registerHotkeys();
     armDebugCapture();
-    sender.on("line", (l: string) => { if (l.startsWith("skip-foreground")) broadcast("sender", l); else if (l.startsWith("err")) log(`key: ${l}`); });
+    sender.on("line", (l: string) => {
+      if (l.startsWith("fg ")) { foregroundApp = l.slice(3).trim(); applyOverlayVisibility(); return; }
+      if (l.startsWith("skip-foreground")) broadcast("sender", l); else if (l.startsWith("err")) log(`key: ${l}`);
+    });
     sender.on("log", (l: string) => log(l));
     void loadData();
     const m = currentMap();

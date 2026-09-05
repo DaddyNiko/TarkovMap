@@ -62,6 +62,8 @@ export interface Settings {
   extrudeDepth: number;
   /** Global hotkeys as Electron accelerators; "" = off. A key the app takes here never reaches the game. */
   hotkeys: Hotkeys;
+  /** Show the overlay only while Escape from Tarkov / Arena is the foreground window. */
+  overlayOnlyInGame: boolean;
   setupDone: boolean;
 }
 
@@ -124,6 +126,7 @@ export const DEFAULT_SETTINGS: Settings = {
   mapStyle: "photo",
   extrudeDepth: 4,
   hotkeys: { ...DEFAULT_HOTKEYS },
+  overlayOnlyInGame: true,
   setupDone: false,
 };
 
@@ -163,6 +166,7 @@ export function sanitize(s: Settings): Settings {
     extrudeDepth: Math.round(clamp(num(s.extrudeDepth, 4), 0, 12)),
     manualMapKey: typeof s.manualMapKey === "string" && s.manualMapKey ? s.manualMapKey : null,
     hotkeys: sanitizeHotkeys(s.hotkeys),
+    overlayOnlyInGame: s.overlayOnlyInGame !== false,
   };
 }
 

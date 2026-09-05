@@ -64,7 +64,8 @@ export function powershellExe(): string {
  *   raid 0|1
  *   press            (one immediate press if EFT is foreground)
  *   quit
- * Output lines: `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `err <text>`.
+ * Output lines: `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `fg <process>` (foreground app
+ * changed; polled twice a second), `err <text>`.
  */
 export const HELPER_SCRIPT = String.raw`
 $ErrorActionPreference = "Continue"
@@ -107,7 +108,7 @@ public static class TkInput {
 }
 "@
 $mode = "manual"; $shotVk = 0x7A; $holdVk = 0x14; $interval = 2000; $inRaid = $false
-$holding = $false; $lastSent = [DateTime]::MinValue
+$holding = $false; $lastSent = [DateTime]::MinValue; $fgLast = ""; $tick = 0
 function Send-Shot {
   $fg = [TkInput]::ForegroundProcess()
   if ($fg -ne "EscapeFromTarkov") { [Console]::Out.WriteLine("skip-foreground " + $fg); return }
@@ -136,6 +137,8 @@ while ($true) {
     }
     $pending = $in.ReadLineAsync()
   }
+  $tick++
+  if (($tick % 5) -eq 0) { $fgNow = [TkInput]::ForegroundProcess(); if ($fgNow -ne $fgLast) { $fgLast = $fgNow; [Console]::Out.WriteLine("fg " + $fgNow) } }
   $now = [DateTime]::UtcNow
   $due = ($now - $lastSent).TotalMilliseconds -ge $interval
   if ($mode -eq "hold") {

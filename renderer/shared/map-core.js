@@ -31,8 +31,22 @@
    * The rotation/shear goes into the projection, the translation into the
    * transformation, so latLng stays [z, x] like every other layer here.
    */
-  TM.crsAffine = function (a, maxZoom) {
+  TM.crsAffine = function (a, maxZoom, homography) {
     const s = 1 / 2 ** maxZoom; // image px at zoom `maxZoom` == 1 map pixel at zoom 0 scaled by 2^z
+    if (homography && homography.length === 9) {
+      // Projective registration: projection does the whole game→px map, transformation only scales.
+      const h = homography;
+      const [A, B, C, D, E, F, G, Hh, I] = h;
+      const det = A * (E * I - F * Hh) - B * (D * I - F * G) + C * (D * Hh - E * G);
+      const inv = [E * I - F * Hh, -(B * I - C * Hh), B * F - C * E, -(D * I - F * G), A * I - C * G, -(A * F - C * D), D * Hh - E * G, -(A * Hh - B * G), A * E - B * D].map((v) => v / det);
+      return L.extend({}, L.CRS.Simple, {
+        transformation: new L.Transformation(s, 0, s, 0),
+        projection: L.extend({}, L.Projection.LonLat, {
+          project: (ll) => { const x = ll.lng, z = ll.lat; const w = G * x + Hh * z + I; return L.point((A * x + B * z + C) / w, (D * x + E * z + F) / w); },
+          unproject: (p) => { const w = inv[6] * p.x + inv[7] * p.y + inv[8]; return L.latLng((inv[3] * p.x + inv[4] * p.y + inv[5]) / w, (inv[0] * p.x + inv[1] * p.y + inv[2]) / w); },
+        }),
+      });
+    }
     return L.extend({}, L.CRS.Simple, {
       transformation: new L.Transformation(s, a.cx * s, s, a.cy * s),
       projection: L.extend({}, L.Projection.LonLat, {
@@ -91,7 +105,7 @@
   TM.buildMap = function (el, payload, options) {
     const def = payload.def;
     const useRe3mr = Boolean(payload.re3mr && options && options.base === "re3mr");
-    const crs = useRe3mr ? TM.crsAffine(payload.re3mr.affine, payload.re3mr.maxZoom) : TM.crsFor(def);
+    const crs = useRe3mr ? TM.crsAffine(payload.re3mr.affine, payload.re3mr.maxZoom, payload.re3mr.homography) : TM.crsFor(def);
     const bounds = TM.boundsFor(def);
     const nativeMax = useRe3mr ? payload.re3mr.maxZoom : def.maxZoom || 6;
     if (useRe3mr) {

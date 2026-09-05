@@ -1,0 +1,47 @@
+{
+ "customs": {
+  "file": "customs.png",
+  "crop": [
+   0,
+   540,
+   7832,
+   3700
+  ]
+ },
+ "woods": {
+  "file": "woods.jpg",
+  "crop": [
+   0,
+   0,
+   7680,
+   3980
+  ]
+ },
+ "streets-of-tarkov": {
+  "file": "streets.png"
+ },
+ "shoreline": {
+  "file": "shoreline.png",
+  "crop": [
+   0,
+   0,
+   5760,
+   2470
+  ]
+ },
+ "lighthouse": {
+  "file": "lighthouse.png"
+ },
+ "reserve": {
+  "file": "reserve.png",
+  "crop": [
+   0,
+   0,
+   4690,
+   1810
+  ]
+ },
+ "icebreaker": {
+  "file": "icebreaker.png"
+ }
+}
