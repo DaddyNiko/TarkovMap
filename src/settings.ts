@@ -1,0 +1,152 @@
+/** settings.json in userData. The OpenRouter key is the only secret; it is stored as-is (single-user PC) and never leaves the machine except to openrouter.ai. */
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import type { SendMode } from "./key-sender.js";
+
+export type Corner = "top-right" | "top-left" | "bottom-right" | "bottom-left";
+
+export interface Settings {
+  installPath: string | null;
+  screenshotsFolder: string | null;
+  /** Debug-only escape hatch; there is deliberately no UI for it. */
+  deleteScreenshots: boolean;
+  mode: SendMode;
+  screenshotKey: string;
+  holdKey: string;
+  intervalMs: number;
+  /** Ghost defaults: map 40 %, scale 80 %, panel 80 %. */
+  mapOpacity: number;
+  overlayScale: number;
+  panelOpacity: number;
+  /** Minimap size in px before scale, and which corner of the main display. */
+  minimapSize: number;
+  corner: Corner;
+  margin: number;
+  headingUp: boolean;
+  rangeRings: boolean;
+  roundMask: boolean;
+  followZoom: number;
+  /** Which display the overlay covers (null = primary) and whether a big map window opens on another display. */
+  overlayDisplayId: number | null;
+  bigMapDisplayId: number | null;
+  bigMapEnabled: boolean;
+  clickThroughInRaid: boolean;
+  showTrail: boolean;
+  showLabels: boolean;
+  showHudText: boolean;
+  showQuests: boolean;
+  showTags: boolean;
+  /** Vertical field of view used to project teammate tags onto the screen. */
+  gameFov: number;
+  /** Per-map layer toggles: key → list of layer ids switched on. */
+  layers: Record<string, string[]>;
+  /** Flea filter threshold in roubles (0 = off). */
+  fleaMin: number;
+  /** Squad */
+  playerName: string;
+  squadCode: string;
+  squadEnabled: boolean;
+  /** AI: OpenRouter key for the plain-English filter prompt (free models first). */
+  openrouterKey: string;
+  openrouterModel: string;
+  /** Quests the user marked done by hand (quest ids). */
+  manualDone: string[];
+  /** Last map the game reported, shown while in the menu; also the manual pick. */
+  lastMapKey: string | null;
+  setupDone: boolean;
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  installPath: null,
+  screenshotsFolder: null,
+  deleteScreenshots: true,
+  mode: "hold",
+  screenshotKey: "F11",
+  holdKey: "CapsLock",
+  intervalMs: 2000,
+  mapOpacity: 0.4,
+  overlayScale: 0.8,
+  panelOpacity: 0.8,
+  minimapSize: 470,
+  corner: "top-right",
+  margin: 20,
+  headingUp: true,
+  rangeRings: true,
+  roundMask: false,
+  followZoom: 4.5,
+  overlayDisplayId: null,
+  bigMapDisplayId: null,
+  bigMapEnabled: true,
+  clickThroughInRaid: true,
+  showTrail: true,
+  showLabels: true,
+  showHudText: true,
+  showQuests: true,
+  showTags: true,
+  gameFov: 65,
+  layers: {},
+  fleaMin: 0,
+  playerName: "",
+  squadCode: "",
+  squadEnabled: false,
+  openrouterKey: "",
+  openrouterModel: "openrouter/free",
+  manualDone: [],
+  lastMapKey: null,
+  setupDone: false,
+};
+
+export function loadSettings(file: string): Settings {
+  try {
+    if (!existsSync(file)) return { ...DEFAULT_SETTINGS };
+    const parsed = JSON.parse(readFileSync(file, "utf8")) as Partial<Settings>;
+    return sanitize({ ...DEFAULT_SETTINGS, ...parsed, layers: parsed.layers ?? {}, manualDone: parsed.manualDone ?? [] });
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+const CORNERS: Corner[] = ["top-right", "top-left", "bottom-right", "bottom-left"];
+
+export function sanitize(s: Settings): Settings {
+  return {
+    ...s,
+    mapOpacity: clamp(num(s.mapOpacity, DEFAULT_SETTINGS.mapOpacity), 0.15, 1),
+    overlayScale: clamp(num(s.overlayScale, DEFAULT_SETTINGS.overlayScale), 0.5, 1.5),
+    panelOpacity: clamp(num(s.panelOpacity, DEFAULT_SETTINGS.panelOpacity), 0.15, 1),
+    minimapSize: Math.round(clamp(num(s.minimapSize, DEFAULT_SETTINGS.minimapSize), 200, 1200)),
+    margin: Math.round(clamp(num(s.margin, DEFAULT_SETTINGS.margin), 0, 400)),
+    intervalMs: Math.round(clamp(num(s.intervalMs, DEFAULT_SETTINGS.intervalMs), 500, 30000)),
+    followZoom: clamp(num(s.followZoom, DEFAULT_SETTINGS.followZoom), 1, 7),
+    gameFov: clamp(num(s.gameFov, DEFAULT_SETTINGS.gameFov), 40, 110),
+    fleaMin: Math.max(0, Math.round(num(s.fleaMin, 0))),
+    corner: CORNERS.includes(s.corner) ? s.corner : "top-right",
+    mode: (["manual", "hold", "timer"] as const).includes(s.mode) ? s.mode : "hold",
+    playerName: String(s.playerName ?? "").slice(0, 24),
+    squadCode: String(s.squadCode ?? "").slice(0, 32),
+    openrouterKey: String(s.openrouterKey ?? "").trim(),
+    openrouterModel: String(s.openrouterModel || DEFAULT_SETTINGS.openrouterModel),
+    manualDone: Array.isArray(s.manualDone) ? s.manualDone.filter((x) => typeof x === "string") : [],
+  };
+}
+
+function num(v: unknown, d: number): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+export function saveSettings(file: string, s: Settings): void {
+  mkdirSync(dirname(file), { recursive: true });
+  const tmp = join(dirname(file), `.settings-${process.pid}.tmp`);
+  writeFileSync(tmp, JSON.stringify(s, null, 2));
+  renameSync(tmp, file);
+}
+
+/** EFT's default screenshot folder: <MyDocuments>\Escape From Tarkov\Screenshots. */
+export function defaultScreenshotsFolder(myDocuments: string): string {
+  return join(myDocuments, "Escape From Tarkov", "Screenshots");
+}

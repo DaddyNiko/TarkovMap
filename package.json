@@ -1,0 +1,50 @@
+{
+  "name": "tarkovmap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Live second-monitor GPS map for Escape from Tarkov — reads the game's own screenshot filenames and logs, never the game itself",
+  "main": "dist/main.js",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "compile": "tsc",
+    "dev": "npm run compile && electron .",
+    "build": "npm run compile && node scripts/make-icon.mjs && node scripts/patch-portable-nsi.mjs && electron-builder && node scripts/ship.mjs",
+    "tiles": "node scripts/fetch-tiles.mjs"
+  },
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  },
+  "devDependencies": {
+    "@types/leaflet": "^1.9.12",
+    "@types/node": "^22.10.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "com.daddyniko.tarkovmap",
+    "productName": "TarkovMap",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "renderer/**",
+      "data/**",
+      "src/preload.cjs",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "TarkovMap.exe",
+      "unpackDirName": "tarkovmap"
+    }
+  }
+}

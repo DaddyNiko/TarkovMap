@@ -1,0 +1,28 @@
+# ⚠️ LF EVERYWHERE, OR CI TESTS THE WRONG BYTES (2026-09-02).
+#
+# The suite is full of source-text assertions anchored on "\n  }\n"-shaped
+# blocks (renderer.js is a classic <script>; main.ts is testable by nothing
+# else). The index is LF, but windows-latest's git has core.autocrlf=true, so
+# every checkout on CI arrived as CRLF and those slices came back empty — CI
+# had never gone green on a deliberate commit, and nobody could tell because
+# autosave pushes skip it. `eol=lf` makes the checkout match the index.
+* text=auto eol=lf
+
+# Binaries never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.onnx binary
+*.bin binary
+*.exe binary
+*.dll binary
+*.node binary
+*.mp4 binary
+*.mov binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary

@@ -1,0 +1,8 @@
+node_modules/
+dist/
+release/
+/release-*/
+/TarkovMap.exe
+settings.json
+*.log
+.tmp-*/

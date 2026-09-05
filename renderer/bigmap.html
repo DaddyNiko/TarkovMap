@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TarkovMap — full map</title>
+<link rel="stylesheet" href="../node_modules/leaflet/dist/leaflet.css">
+<link rel="stylesheet" href="shared/tm.css">
+<style>
+html, body { background: var(--bg); overflow: hidden; width: 100vw; height: 100vh; user-select: none; }
+#map { position: absolute; inset: 0; }
+#rail { position: absolute; right: 0; top: 0; bottom: 0; width: 250px; background: rgba(8,9,10,.72); backdrop-filter: blur(4px); border-left: 1px solid var(--line); padding: 14px 14px 14px 16px; overflow: auto; z-index: 900; -webkit-app-region: no-drag; }
+#rail h5 { margin: 12px 0 6px; font-size: 10px; letter-spacing: 2.4px; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.chip { display: inline-block; padding: 3px 9px; border-radius: 9px; background: rgba(255,255,255,.06); color: #fff; font-size: 12px; margin: 0 4px 4px 0; border: 1px solid transparent; cursor: pointer; }
+.chip.on { background: rgba(120,230,140,.14); border-color: rgba(120,230,140,.5); color: var(--green); }
+.chip.f { cursor: pointer; }
+input[type=range] { width: 100%; }
+input[type=text] { width: 100%; font: inherit; font-size: 12px; color: #fff; background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: 9px; padding: 6px 8px; outline: none; }
+.val { font-weight: 600; font-size: 16px; }
+#head { position: absolute; left: 12px; top: 10px; z-index: 900; font-size: 12px; letter-spacing: 2px; color: rgba(255,255,255,.8); background: rgba(8,9,10,.6); padding: 5px 10px; border-radius: 8px; -webkit-app-region: drag; }
+#head b { color: #fff; margin-left: 8px; }
+#close { position: absolute; right: 262px; top: 10px; z-index: 900; font-size: 12px; color: #fff; background: rgba(8,9,10,.6); border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+#mates .row { height: 24px; }
+#ans { font-size: 11px; color: var(--dim); margin-top: 4px; min-height: 14px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="head">TARKOVMAP <b id="title">—</b></div>
+<button id="close">Hide</button>
+<div id="rail">
+  <h5>Layers</h5>
+  <div id="layers"></div>
+  <h5>Floor</h5>
+  <div id="floors"></div>
+  <h5>Flea, at least</h5>
+  <div class="val" id="fleaVal">off</div>
+  <input type="range" id="flea" min="0" max="300000" step="5000" value="0">
+  <h5>Ask</h5>
+  <input type="text" id="ask" placeholder="extracts, dorm keys, over 40k…">
+  <div id="ans"></div>
+  <h5>Squad</h5>
+  <div id="mates"></div>
+  <h5>Quests here</h5>
+  <div id="quests"></div>
+  <h5>Ping</h5>
+  <div><span class="chip f" data-ping="regroup">regroup</span><span class="chip f" data-ping="loot here">loot here</span><span class="chip f" data-ping="enemy seen">enemy seen</span><span class="chip f" data-ping="extract">extract</span></div>
+</div>
+<script src="../node_modules/leaflet/dist/leaflet.js"></script>
+<script src="shared/map-core.js"></script>
+<script src="bigmap.js"></script>
+</body>
+</html>

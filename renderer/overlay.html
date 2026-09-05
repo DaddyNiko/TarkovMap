@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>TarkovMap overlay</title>
+<link rel="stylesheet" href="../node_modules/leaflet/dist/leaflet.css">
+<link rel="stylesheet" href="shared/tm.css">
+<style>
+html, body { background: transparent; overflow: hidden; width: 100vw; height: 100vh; user-select: none; }
+#ui { position: absolute; top: 0; right: 0; width: 100vw; height: 100vh; transform-origin: top right; }
+#mmwrap { position: absolute; width: 470px; height: 470px; opacity: 0.4; transition: opacity .2s; }
+#mm { position: absolute; inset: 0; border-radius: 16px; overflow: hidden; box-shadow: 0 0 0 1px rgba(255,255,255,.25), 0 12px 40px rgba(0,0,0,.55); background: rgba(26,29,25,.6); }
+#mm.round { border-radius: 50%; }
+#rot { position: absolute; left: -25%; top: -25%; width: 150%; height: 150%; transform-origin: 50% 50%; will-change: transform; }
+#map { position: absolute; inset: 0; }
+#vig { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 50% 50%, transparent 50%, rgba(4,5,4,.55) 82%); z-index: 650; }
+.ringc { position: absolute; left: 50%; top: 50%; border-radius: 50%; border: 1px dashed rgba(255,255,255,.18); transform: translate(-50%,-50%); pointer-events: none; z-index: 651; }
+.ringl { position: absolute; left: 50%; font-size: 9px; color: rgba(255,255,255,.45); transform: translateX(-50%); z-index: 652; letter-spacing: 1px; pointer-events: none; }
+.tag { position: absolute; z-index: 700; font-size: 11px; font-weight: 600; letter-spacing: 1.5px; color: rgba(255,255,255,.9); background: rgba(8,9,10,.6); padding: 3px 8px; border-radius: 8px; }
+#north { right: 14px; top: 14px; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; padding: 0; }
+#north i { position: absolute; top: -6px; left: 50%; width: 0; height: 0; margin-left: -4px; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid #ff5a5a; }
+#side { position: absolute; width: 340px; opacity: 0.8; }
+#side.right { text-align: right; }
+#side.right .row { flex-direction: row-reverse; }
+#side.right .q { flex-direction: row-reverse; }
+#side.right .q .m { margin-right: auto; }
+#side:not(.right) .q .m { margin-left: auto; }
+#status { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); font-size: 11px; letter-spacing: 2px; color: rgba(255,255,255,.7); background: rgba(8,9,10,.6); padding: 4px 12px; border-radius: 8px; display: none; }
+#status.show { display: block; }
+#tags { position: absolute; inset: 0; pointer-events: none; }
+.wtag { position: absolute; transform: translate(-50%, -100%); text-align: center; font-size: 12px; font-weight: 600; text-shadow: 0 0 4px #000, 0 1px 2px #000; white-space: nowrap; }
+.wtag b { display: block; color: rgba(255,255,255,.85); font-weight: 400; font-size: 11px; }
+.wtag i { display: block; width: 0; height: 0; margin: 3px auto 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 6px solid currentColor; }
+.wtag.mate { color: #60c8ff; }
+.wtag.ping { color: #ffc45c; }
+.edge { position: absolute; font-size: 12px; font-weight: 600; text-shadow: 0 0 4px #000; }
+#hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 11px; color: rgba(255,255,255,.75); background: rgba(8,9,10,.7); padding: 6px 12px; border-radius: 8px; letter-spacing: 1px; display: none; }
+#hint.show { display: block; }
+#interact { position: absolute; left: 12px; top: 12px; display: none; gap: 8px; }
+#interact.show { display: flex; }
+#interact button { font: inherit; font-size: 11px; letter-spacing: 1px; color: #fff; background: rgba(8,9,10,.75); border: 1px solid rgba(255,255,255,.2); border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <div id="mmwrap">
+    <div id="mm">
+      <div id="rot"><div id="map"></div></div>
+      <div id="vig"></div>
+      <div class="ringc" id="ring1"></div><div class="ringc" id="ring2"></div>
+      <div class="ringl" id="ringl1">50 m</div><div class="ringl" id="ringl2">100 m</div>
+      <div class="tag" id="north"><i></i>N</div>
+      <div class="tag" id="floor" style="left:14px;top:14px">G</div>
+    </div>
+  </div>
+  <div id="side">
+    <div id="quests"></div>
+    <div id="targets"></div>
+    <div class="st" id="raidline"></div>
+  </div>
+</div>
+<div id="tags"></div>
+<div id="status"></div>
+<div id="interact">
+  <button id="bOpen">Open TarkovMap</button>
+  <button id="bBig">Full map</button>
+  <button id="bPing">Ping here (F6)</button>
+  <button id="bDone">Done (F9)</button>
+</div>
+<div id="hint"></div>
+<script src="../node_modules/leaflet/dist/leaflet.js"></script>
+<script src="shared/map-core.js"></script>
+<script src="overlay.js"></script>
+</body>
+</html>
