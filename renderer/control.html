@@ -65,28 +65,61 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 #pairs div span { min-width: 90px; }
 #pairs div b { color: var(--amber); }
 #pairs div i { font-style: normal; color: var(--dim); flex: 1; }
-#prog .head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
-#prog .phase { font-size: 20px; font-weight: 700; color: var(--green); }
-#prog .lvl { font-size: 13px; color: var(--dim); }
-#prog .bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin: 6px 0 2px; }
-#prog .bar i { display: block; height: 100%; background: var(--green); border-radius: 4px; }
-#prog .bar i.amber { background: #ffc45c; }
-#prog .bar i.cyan { background: var(--cyan); }
-#prog .row { display: flex; justify-content: space-between; font-size: 12px; margin-top: 10px; }
-#prog .row b { font-size: 13px; }
-#prog .row em { font-style: normal; color: var(--dim); }
-#prog .tracks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; }
-#prog .traders { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; margin-top: 4px; }
-#prog .traders .row { margin-top: 4px; }
-#prog .traders .bar { height: 5px; margin: 3px 0 0; }
-#prog .list { font-size: 12px; line-height: 1.7; }
-#prog .list em { font-style: normal; color: var(--dim); }
-#prog .tag { display: inline-block; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 0 5px; border-radius: 4px; margin-left: 5px; vertical-align: 1px; }
-#prog .tag.k { color: #ffc45c; border: 1px solid rgba(255,196,92,.5); }
-#prog .tag.l { color: var(--cyan); border: 1px solid rgba(90,220,255,.45); }
-.why { font-size: 11px; color: rgba(255,255,255,.55); margin: 1px 0 3px; line-height: 1.4; }
-#prog .list .why { margin: 0 0 7px; }
-#prog .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; }
+.qtabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.qtabs a { padding: 6px 16px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); font-size: 13px; font-weight: 600; cursor: pointer; }
+.qtabs a.on { background: rgba(120,230,140,.14); border-color: rgba(120,230,140,.5); color: var(--green); }
+.face { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #222; flex: none; border: 2px solid rgba(255,255,255,.12); }
+.face.big { width: 50px; height: 50px; }
+.face.amber { border-color: rgba(255,196,92,.7); } .face.cyan { border-color: rgba(96,200,255,.7); }
+.qhero-row { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+.qhero { display: flex; gap: 12px; align-items: center; margin: 0; }
+.qhero .n { flex: 1; min-width: 0; }
+.qhero .n b { display: block; font-size: 14px; }
+.qhero .n b em { font-style: normal; font-weight: 600; margin-left: 6px; }
+.qhero .n > span { display: block; font-size: 12px; color: var(--dim); line-height: 1.45; }
+.qhero .phase { font-size: 22px; color: var(--green); line-height: 1.1; margin-bottom: 2px; }
+.ringwrap { position: relative; width: 76px; height: 76px; flex: none; }
+.ringwrap .ring { position: absolute; inset: 0; }
+.ringwrap .ringtxt { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; }
+.ringwrap.sm { width: 58px; height: 58px; }
+.ringwrap.sm .face { position: absolute; left: 11px; top: 11px; }
+.pbar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.09); overflow: hidden; margin: 6px 0 4px; }
+.pbar i { display: block; height: 100%; background: var(--green); border-radius: 3px; }
+.pbar i.amber { background: #ffc45c; } .pbar i.cyan { background: var(--cyan); }
+.strip { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 6px 0 16px; }
+.strip .tr { text-align: center; width: 84px; }
+.strip .tr b { display: block; font-size: 12px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.strip .tr span { font-size: 11.5px; color: var(--dim); }
+.qgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.qgrid.three { grid-template-columns: 1fr 1fr 1fr; }
+.qcard { display: flex; gap: 10px; align-items: flex-start; background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.qcard .n { flex: 1; min-width: 0; }
+.qcard .n b { display: block; font-size: 13px; line-height: 1.3; }
+.qcard .n > span { display: block; font-size: 11.5px; color: var(--dim); }
+.qcard .acts { display: flex; flex-direction: column; gap: 4px; }
+.qcard .acts button { font-size: 11px; padding: 4px 8px; }
+.qmore { font-size: 12px; color: var(--cyan); cursor: pointer; margin: -8px 0 16px; display: inline-block; }
+.tag { display: inline-block; font-size: 9.5px; letter-spacing: 1px; text-transform: uppercase; padding: 0 5px; border-radius: 4px; margin-left: 6px; vertical-align: 2px; font-weight: 600; }
+.tag.k { color: #ffc45c; border: 1px solid rgba(255,196,92,.5); } .tag.l { color: var(--cyan); border: 1px solid rgba(96,200,255,.5); }
+.tag.lvl { color: var(--dim); border: 1px solid var(--line); text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+.qfilters { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.qfilters input[type=text] { width: 200px; } .qfilters select { width: auto; }
+.qfilters .chip { margin: 0; }
+.tsec { border-bottom: 1px solid var(--line); }
+.tsec summary { display: flex; gap: 12px; align-items: center; cursor: pointer; list-style: none; padding: 10px 0; }
+.tsec summary::-webkit-details-marker { display: none; }
+.tsec summary .n { flex: 1; min-width: 0; }
+.tsec summary .n b { font-size: 14px; }
+.tsec summary .n > span { font-size: 11.5px; color: var(--dim); margin-left: 8px; }
+.tsec summary .pbar { width: 160px; margin: 0; flex: none; }
+.tsec summary .chev { color: var(--dim); font-size: 12px; transition: transform .15s; }
+.tsec[open] summary .chev { transform: rotate(90deg); }
+.tsec .rows { padding: 0 0 6px 12px; }
+.qrow.locked { opacity: .55; }
+.qrow .n b .tag { vertical-align: 1px; }
+.qempty { color: var(--dim); font-size: 12px; padding: 12px 0; }
+.why { font-size: 11.5px; color: rgba(255,255,255,.6); margin: 2px 0 3px; line-height: 1.4; }
+.qcard .why { font-size: 12px; margin: 3px 0 4px; }
 .qsec { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin: 12px 0 4px; }
 .qrow.done { opacity: .45; }
 .qrow .objs { margin-top: 4px; }
@@ -179,10 +212,10 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 
     <section id="s-quests">
       <h2>Quests</h2>
-      <div class="sub">Accepted, not started, locked and done, from the game's own notifications. Visit and extract objectives tick themselves from your position; item counts (2/5) are not in the logs, so tick those by hand. Your level is not in the logs either, so "not started" only means the earlier quests are done.</div>
+      <div class="qtabs"><a data-qt="prog" class="on">My progression</a><a data-qt="all">All quests</a></div>
       <div class="notice" id="questNotice"></div>
-      <div class="card" id="progCard"><div id="prog"></div></div>
-      <div class="card"><div id="questList"></div></div>
+      <div id="qt-prog"></div>
+      <div id="qt-all" hidden><div class="qfilters" id="qfilters"></div><div class="card"><div id="questList"></div></div></div>
     </section>
 
     <section id="s-layers">
@@ -293,7 +326,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h3 id="h-base">6 · The map imagery and aligning a render</h3>
       <p>Three looks. <b>Light</b> (default) and <b>Dark</b> are drawn by this app from the game's vector data — every map, every floor, one floor at a time; Labyrinth and Icebreaker were traced from the game's own tiles because no vector of them exists anywhere. <b>3D</b> is RE3MR's render (reemr.se, Creative Commons BY-NC-SA 4.0; his credit stays on the map) on the maps that have one (the Map page lists them). Aligning a render means telling the app where game coordinates land on the picture: on the Map page, click the same spot on the render and on the tiles, six or more pairs across the map, and save. The error shown is the average miss in metres; under five is good. Every map ships pre-aligned by me, so this is only for nudging.</p>
       <h3 id="h-quests">7 · Quests</h3>
-      <p>When the game says a quest started, it appears; when the game says it finished, it disappears. Every start reads your whole log history again, so a quest you finished while the app was closed is picked up. Objectives with a fixed spot get a marker with the trader's face; hover or click one on the full map for the quest's state, level, objectives and a wiki button. <b>Visit</b> and <b>extract</b> objectives tick themselves when your position enters the zone; item counts and kills are not in the logs, so tick those in the popup or on the Quests page. The <b>All quests</b> layer draws every quest on the map: amber accepted, white not started, grey locked behind earlier quests, green done (hidden unless "show finished" is on). The <b>Quest items</b> layer marks items that accepted and future quests need, at the spots where they can spawn, with an importance score you filter with the slider; quest-specific items (documents, drives) lie at their exact spots. Your level is not in the logs, so "not started" only means the earlier quests are done.</p>
+      <p>The page has two tabs. <b>My progression</b> is the dashboard: a ring with the share of quests done and your phase of the wipe, Kappa and Lightkeeper cards with how many quests each still needs and how many must be finished one after another, a ring around every trader's portrait for that trader's line, then your accepted quests as cards (biggest unlocks first) and what is ready to accept. Every quest carries one line on why it matters: the trader it unlocks, whether it is on the road to Kappa or Lightkeeper, and what it opens. <b>All quests</b> lists everything grouped by trader, with state chips, a map filter and a search box.</p><p>When the game says a quest started, it appears; when the game says it finished, it disappears. Every start reads your whole log history again, so a quest you finished while the app was closed is picked up. Objectives with a fixed spot get a marker with the trader's face; hover or click one on the full map for the quest's state, level, objectives and a wiki button. <b>Visit</b> and <b>extract</b> objectives tick themselves when your position enters the zone; item counts and kills are not in the logs, so tick those in the popup or on the Quests page. The <b>All quests</b> layer draws every quest on the map: amber accepted, white not started, grey locked behind earlier quests, green done (hidden unless "show finished" is on). The <b>Quest items</b> layer marks items that accepted and future quests need, at the spots where they can spawn, with an importance score you filter with the slider; quest-specific items (documents, drives) lie at their exact spots. Your level is not in the logs, so "not started" only means the earlier quests are done.</p>
       <h3 id="h-squad">8 · Squad sharing and pings</h3>
       <p>Everyone types the same squad code and their name. On the same network the app finds the others by itself; positions are shared only inside the same raid. Teammates show on both maps and as a small name tag in the game view (approximate, refreshed with each of your fixes). Pings mark a spot at your position with a word; they show on every squadmate's maps and as a tag, and expire after five minutes.</p>
       <h3 id="h-layers">9 · Layers, flea filter and the ask box</h3>

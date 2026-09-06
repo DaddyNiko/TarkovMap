@@ -818,6 +818,7 @@ function armDebugCapture(): void {
       try {
         if (name === "overlay" || name === "tags") await w.webContents.insertCSS("html{background:#3a3a34 !important}");
         if (name === "control" && process.env.TARKOVMAP_SHOT_SECTION) { await w.webContents.executeJavaScript(`(function(){const a=document.querySelector('nav a[data-s=' + ${JSON.stringify(JSON.stringify(process.env.TARKOVMAP_SHOT_SECTION))} + ']');if(a)a.click();})()`); await new Promise((r) => setTimeout(r, 2500)); }
+        if (name === "control" && process.env.TARKOVMAP_SHOT_JS) { try { await w.webContents.executeJavaScript(process.env.TARKOVMAP_SHOT_JS); } catch (e) { log(`debug: shot js: ${(e as Error).message}`); } await new Promise((r) => setTimeout(r, 2500)); }
         if (name === "control" && process.env.TARKOVMAP_SHOT_SCROLL) { await w.webContents.executeJavaScript(`(function(){const el=document.getElementById(${JSON.stringify(process.env.TARKOVMAP_SHOT_SCROLL)});if(el)el.scrollIntoView({block:"start"});})()`); await new Promise((r) => setTimeout(r, 1500)); }
         const img = await w.webContents.capturePage();
         writeFileSync(join(dir, `${name}.png`), img.toPNG());

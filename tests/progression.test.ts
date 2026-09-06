@@ -29,8 +29,11 @@ describe("progression", () => {
     // Collector closure (a b c col s1 s2) plus the flagged loose quest
     expect(kappa).toMatchObject({ goal: "Collector", goalLevel: 62, total: 7, done: 0, chainLeft: 4, goalDone: false });
     expect(kappa.nextUp).toEqual(["Debut", "Side 1", "Loose"]);
+    expect(kappa.goalTrader).toEqual({ id: "Fence", name: "Fence" });
     const lk = p.tracks.find((t) => t.key === "lightkeeper")!;
-    expect(lk).toMatchObject({ goal: "Getting Acquainted", total: 3, chainLeft: 3 });
+    expect(lk).toMatchObject({ goal: "Getting Acquainted", total: 3, chainLeft: 3, goalTrader: { id: "Mechanic", name: "Mechanic" } });
+    expect(p.traders.find((t) => t.name === "Prapor")).toMatchObject({ id: "Prapor", total: 3 });
+    expect(p.nextUp[0]).toMatchObject({ traderId: "Prapor", map: null, minPlayerLevel: 1 });
     expect(p.nextUp.map((n) => n.name)).toEqual(["Debut", "Side 1", "Loose", "Network Provider - Part 1"]);
   });
   it("mid-wipe: level bound from confirmed quests, unlock counts, chain shrinks, trader split", () => {
@@ -43,7 +46,7 @@ describe("progression", () => {
     expect(kappa).toMatchObject({ done: 4, active: 2, chainLeft: 2 });
     expect(p.traders.find((t) => t.name === "Prapor")).toMatchObject({ total: 3, done: 2, active: 1 });
     const c = p.activeQuests.find((a) => a.id === "c")!;
-    expect(c).toMatchObject({ unlocks: 1, objectivesDone: 1, objectivesTotal: 2, kappa: true, lightkeeper: false });
+    expect(c).toMatchObject({ unlocks: 1, objectivesDone: 1, objectivesTotal: 2, kappa: true, lightkeeper: false, traderId: "Prapor", minPlayerLevel: 5 });
     expect(p.activeQuests.find((a) => a.id === "np2")).toMatchObject({ unlocks: 1, lightkeeper: true, kappa: false });
   });
   it("kappa done", () => {

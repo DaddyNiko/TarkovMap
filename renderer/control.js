@@ -187,28 +187,116 @@
     el.innerHTML = mates.length ? mates.map((m) => `<div class="row"><span class="g" style="background:${TM.COLORS.squad}"></span><span>${TM.esc(m.name)}</span><span class="d">${m.floor || ""} ${m.moving ? "moving" : "still"} ${m.flag ? "· " + TM.esc(m.flag) : ""} · ${Math.round((Date.now() - m.at) / 1000)} s ago</span>${snap.fix ? `<span class="m">${Math.round(TM.dist(snap.fix, m))}<em>m</em></span>` : ""}</div>`).join("") : `<div class="k">${snap.settings.squadEnabled ? "nobody sharing yet — same code, same raid, same network" : "sharing is off"}</div>`;
   }
 
+  // ── Quests page: "My progression" dashboard + "All quests" by trader ──────
+  const FACE = (id) => `https://assets.tarkov.dev/${id}.webp`;
+  const face = (id, cls) => `<img class="face${cls ? " " + cls : ""}" src="${TM.esc(FACE(id))}" alt="" onerror="this.style.visibility='hidden'">`;
+  const pc = (n, d) => (d ? Math.round((n / d) * 100) : 0);
+  function ring(pct, size, color, width) {
+    const r = (size - width) / 2, c = 2 * Math.PI * r, h = size / 2;
+    return `<svg class="ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><circle cx="${h}" cy="${h}" r="${r}" stroke="rgba(255,255,255,.1)" stroke-width="${width}" fill="none"/><circle cx="${h}" cy="${h}" r="${r}" stroke="${color}" stroke-width="${width}" fill="none" stroke-linecap="round" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - Math.min(100, Math.max(0, pct)) / 100)).toFixed(1)}" transform="rotate(-90 ${h} ${h})"/></svg>`;
+  }
+  const tagsFor = (q) => (q.kappa ? '<span class="tag k">kappa</span>' : "") + (q.lightkeeper ? '<span class="tag l">lightkeeper</span>' : "");
+
+  let questTab = "prog";
+  try { questTab = localStorage.getItem("tm.questTab") || "prog"; } catch { /* no storage */ }
+  const qfilter = { states: new Set(["active", "available"]), map: "", q: "" };
+  function setQuestTab(t) {
+    questTab = t;
+    try { localStorage.setItem("tm.questTab", t); } catch { /* no storage */ }
+    document.querySelectorAll(".qtabs a").forEach((a) => a.classList.toggle("on", a.dataset.qt === t));
+    $("qt-prog").hidden = t !== "prog";
+    $("qt-all").hidden = t !== "all";
+    questsKey = "";
+    paintQuests();
+  }
+  document.querySelectorAll(".qtabs a").forEach((a) => (a.onclick = () => setQuestTab(a.dataset.qt)));
+
   function paintProgression(p) {
-    const el = $("prog");
-    if (!p || !p.total) { el.innerHTML = `<div class="k">no quest data yet</div>`; return; }
-    const pc = (n, d) => (d ? Math.round((n / d) * 100) : 0);
-    const bar = (n, d, cls) => `<div class="bar"><i class="${cls || ""}" style="width:${pc(n, d)}%"></i></div>`;
-    const track = (t) => {
+    const el = $("qt-prog");
+    if (!p || !p.total) { el.innerHTML = `<div class="card"><div class="k">${snap && snap.data && snap.data.tasks === "missing" ? "quest names and objectives are not downloaded yet" : "no quest data"}</div></div>`; return; }
+    const [phase, phaseSub] = p.phaseText.split(" — ");
+    const pct = pc(p.done, p.total);
+    const track = (t, cls) => {
+      if (!t) return "";
       const left = t.total - t.done;
-      const goal = t.goalDone ? `${TM.esc(t.goal)} done` : t.goal ? `ends at ${TM.esc(t.goal)}${t.goalLevel ? " (level " + t.goalLevel + ")" : ""}` : "no goal quest in the data";
-      const next = t.nextUp.length ? `next: ${t.nextUp.map(TM.esc).join(", ")}` : left ? "nothing openable yet — finish what is accepted" : "";
-      return `<div><div class="row"><b>${TM.esc(t.name)}</b><em>${t.done} / ${t.total} · ${pc(t.done, t.total)}%</em></div>${bar(t.done, t.total, t.key === "kappa" ? "amber" : "cyan")}<div class="list"><em>${goal} · ${left} left, ${t.active} accepted · at least ${t.chainLeft} in a row still ahead</em><br>${next}</div></div>`;
+      const goal = t.goalDone ? `${TM.esc(t.goal)} done` : t.goal ? `ends at ${TM.esc(t.goal)}${t.goalLevel ? " · level " + t.goalLevel : ""}` : "no goal quest in the data";
+      return `<div class="card qhero">${t.goalTrader ? face(t.goalTrader.id, "big " + cls) : ""}<div class="n"><b>${TM.esc(t.name)}<em class="${cls === "amber" ? "" : ""}" style="color:${cls === "amber" ? "#ffc45c" : "var(--cyan)"}">${t.done} / ${t.total}</em></b><span>${goal}</span><div class="pbar"><i class="${cls}" style="width:${pc(t.done, t.total)}%"></i></div><span>${left} left · ${t.active} accepted · ${t.chainLeft} in a row still ahead</span></div></div>`;
     };
-    const traders = p.traders.map((t) => `<div><div class="row"><b>${TM.esc(t.name)}</b><em>${t.done}/${t.total}${t.active ? " · " + t.active + " on" : ""}</em></div>${bar(t.done, t.total)}</div>`).join("");
-    const active = p.activeQuests.slice(0, 12).map((a) => `${TM.esc(a.name)} <em>${TM.esc(a.trader)} · ${a.objectivesDone}/${a.objectivesTotal} objectives${a.unlocks ? " · unlocks " + a.unlocks + " more" : " · end of its line"}</em>${a.kappa ? '<span class="tag k">kappa</span>' : ""}${a.lightkeeper ? '<span class="tag l">lightkeeper</span>' : ""}<div class="why">${TM.esc(a.why)}</div>`).join("") + (p.activeQuests.length > 12 ? `<br><em>+${p.activeQuests.length - 12} more accepted</em>` : "");
-    const next = p.nextUp.length ? p.nextUp.map((n) => `${TM.esc(n.name)} <em>${TM.esc(n.trader)}${n.minPlayerLevel > 1 ? " · level " + n.minPlayerLevel + "+" : ""}</em>${n.kappa ? '<span class="tag k">kappa</span>' : ""}<div class="why">${TM.esc(n.why)}</div>`).join("") : "<em>nothing new opens until an accepted quest is finished</em>";
-    el.innerHTML = `<div class="k">Your progression</div>
-      <div class="head"><span class="phase">${TM.esc(p.phaseText.split(" — ")[0])}</span><span class="lvl">level ${p.levelAtLeast}+ · ${p.done} of ${p.total} quests done (${pc(p.done, p.total)}%) · ${p.active} accepted · ${p.available} ready to accept · ${p.locked} locked</span></div>
-      <div class="lvl" style="margin-top:2px">${TM.esc(p.phaseText.split(" — ")[1] || "")}. Your level is not in the logs, so "level ${p.levelAtLeast}+" is the highest level a quest the game confirmed asks for.</div>
-      ${bar(p.done, p.total)}
-      <div class="tracks">${p.tracks.map(track).join("")}</div>
-      <div class="k" style="margin-top:14px">By trader</div><div class="traders">${traders}</div>
-      <div class="cols"><div><div class="k" style="margin-top:14px">Accepted · what each one opens</div><div class="list">${active || "<em>nothing accepted</em>"}</div></div>
-      <div><div class="k" style="margin-top:14px">Ready to accept</div><div class="list">${next}</div></div></div>`;
+    const kappa = p.tracks.find((t) => t.key === "kappa"), lk = p.tracks.find((t) => t.key === "lightkeeper");
+    const hero = `<div class="qhero-row">
+      <div class="card qhero"><div class="ringwrap">${ring(pct, 76, "var(--green)", 7)}<span class="ringtxt">${pct}%</span></div><div class="n"><b class="phase">${TM.esc(phase)}</b><span>level ${p.levelAtLeast}+ · ${p.done} of ${p.total} quests done</span><span>${p.active} accepted · ${p.available} ready · ${p.locked} locked</span></div></div>
+      ${track(kappa, "amber")}${track(lk, "cyan")}</div>
+      <div class="why" style="margin:0 0 14px">${TM.esc(phaseSub || "")}. Your level is not in the logs, so "level ${p.levelAtLeast}+" is the highest level a quest the game confirmed asks for.</div>`;
+    const strip = `<div class="k">By trader</div><div class="strip">${p.traders.map((t) => `<div class="tr"><div class="ringwrap sm">${ring(pc(t.done, t.total), 58, "var(--green)", 3)}${face(t.id)}</div><b>${TM.esc(t.name)}</b><span>${t.done}/${t.total}${t.active ? " · " + t.active + " on" : ""}</span></div>`).join("")}</div>`;
+    const card = (a, extra) => `<div class="qcard">${face(a.traderId)}<div class="n"><b>${TM.esc(a.name)}${tagsFor(a)}${extra || ""}</b><span>${TM.esc(a.trader)}${a.map ? " · " + TM.esc(a.map) : ""}${a.unlocks != null ? (a.unlocks ? " · unlocks " + a.unlocks + " more" : " · end of its line") : ""}</span><div class="why">${TM.esc(a.why)}</div>${a.objectivesTotal != null ? `<div class="pbar"><i style="width:${pc(a.objectivesDone, a.objectivesTotal)}%"></i></div><span>${a.objectivesDone} / ${a.objectivesTotal} objectives</span>` : ""}</div><div class="acts"><button data-done="${TM.esc(a.id)}">Mark done</button></div></div>`;
+    const act = p.activeQuests;
+    const accepted = `<div class="k">Accepted · biggest unlocks first</div>${act.length ? `<div class="qgrid">${act.slice(0, 12).map((a) => card(a)).join("")}</div>` : `<div class="qempty">nothing accepted — the game has not reported a started quest yet</div>`}${act.length > 12 ? `<a class="qmore" data-more="active">+${act.length - 12} more accepted → All quests</a>` : ""}`;
+    const ready = `<div class="k">Ready to accept</div>${p.nextUp.length ? `<div class="qgrid three">${p.nextUp.slice(0, 6).map((n) => card(n, n.minPlayerLevel > 1 ? `<span class="tag lvl">lvl ${n.minPlayerLevel}</span>` : "")).join("")}</div>` : `<div class="qempty">nothing new opens until an accepted quest is finished</div>`}${p.available > 6 ? `<a class="qmore" data-more="available">+${p.available - 6} more ready → All quests</a>` : ""}`;
+    el.innerHTML = hero + strip + accepted + ready;
+    el.querySelectorAll("[data-done]").forEach((b) => (b.onclick = () => window.api.markQuestDone(b.dataset.done, true).then(() => { questsKey = ""; paintQuests(); })));
+    el.querySelectorAll("[data-more]").forEach((a) => (a.onclick = () => { qfilter.states = new Set([a.dataset.more]); setQuestTab("all"); }));
+  }
+
+  let allList = null;
+  const collapsed = new Set();
+  const ORDER = { active: 0, available: 1, locked: 2, failed: 3, done: 4 };
+  const STATE_LABEL = { active: "Accepted", available: "Ready", locked: "Locked", done: "Done", failed: "Failed" };
+  function paintFilters(list) {
+    const f = $("qfilters");
+    const maps = [...new Set(list.flatMap((q) => [q.map, ...q.objectives.flatMap((o) => o.maps)]).filter(Boolean))].sort();
+    f.innerHTML = `${["active", "available", "locked", "done"].map((s) => `<span class="chip${qfilter.states.has(s) ? " on" : ""}" data-qs="${s}">${STATE_LABEL[s]}</span>`).join("")}<select id="qmap"><option value="">every map</option>${maps.map((m) => `<option value="${TM.esc(m)}"${qfilter.map === m ? " selected" : ""}>${TM.esc(m)}</option>`).join("")}</select><input type="text" id="qsearch" placeholder="search quests…" value="${TM.esc(qfilter.q)}">`;
+    f.querySelectorAll("[data-qs]").forEach((c) => (c.onclick = () => { qfilter.states.has(c.dataset.qs) ? qfilter.states.delete(c.dataset.qs) : qfilter.states.add(c.dataset.qs); paintFilters(allList); renderAll(); }));
+    $("qmap").onchange = () => { qfilter.map = $("qmap").value; renderAll(); };
+    $("qsearch").oninput = () => { qfilter.q = $("qsearch").value.trim().toLowerCase(); renderAll(); };
+  }
+  function renderAll() {
+    const el = $("questList");
+    const list = allList || [];
+    const showDone = snap && snap.settings.showDoneQuests;
+    const keep = (q) => qfilter.states.has(q.state === "failed" ? "done" : q.state) && (q.state !== "done" || showDone || qfilter.states.has("done")) && (!qfilter.map || q.map === qfilter.map || q.objectives.some((o) => o.maps.includes(qfilter.map))) && (!qfilter.q || q.name.toLowerCase().includes(qfilter.q));
+    const byTrader = new Map();
+    for (const q of list) {
+      const t = byTrader.get(q.trader.id) ?? { id: q.trader.id, name: q.trader.name, all: [], rows: [] };
+      t.all.push(q);
+      if (keep(q)) t.rows.push(q);
+      byTrader.set(q.trader.id, t);
+    }
+    const traders = [...byTrader.values()].filter((t) => t.rows.length).sort((a, b) => b.all.length - a.all.length);
+    el.innerHTML = "";
+    if (!traders.length) { el.innerHTML = `<div class="qempty">nothing matches — widen the chips or clear the search</div>`; return; }
+    for (const t of traders) {
+      const done = t.all.filter((q) => q.state === "done").length, active = t.all.filter((q) => q.state === "active").length;
+      const d = document.createElement("details");
+      d.className = "tsec";
+      d.open = !collapsed.has(t.id);
+      d.innerHTML = `<summary>${face(t.id)}<div class="n"><b>${TM.esc(t.name)}</b><span>${done} of ${t.all.length} done${active ? " · " + active + " accepted" : ""}${t.rows.length !== t.all.length ? " · " + t.rows.length + " shown" : ""}</span></div><div class="pbar"><i style="width:${pc(done, t.all.length)}%"></i></div><span class="chev">▶</span></summary><div class="rows"></div>`;
+      d.ontoggle = () => { d.open ? collapsed.delete(t.id) : collapsed.add(t.id); };
+      const rows = d.querySelector(".rows");
+      t.rows.sort((a, b) => (ORDER[a.state] ?? 9) - (ORDER[b.state] ?? 9) || (a.minPlayerLevel || 0) - (b.minPlayerLevel || 0) || a.name.localeCompare(b.name));
+      for (const q of t.rows) rows.appendChild(questRow(q));
+      el.appendChild(d);
+    }
+  }
+  function questRow(q) {
+    const st = q.state;
+    const row = document.createElement("div");
+    row.className = "qrow" + (st === "done" ? " done" : st === "locked" ? " locked" : "");
+    const meta = `${STATE_LABEL[st] || st}${q.map ? " · " + TM.esc(q.map) : ""}${q.minPlayerLevel > 1 ? " · level " + q.minPlayerLevel + "+" : ""}`;
+    const tags = (q.kappaRequired ? '<span class="tag k">kappa</span>' : "");
+    if (st === "locked") {
+      row.innerHTML = `<img src="${TM.esc(q.trader.portrait)}"><div class="n"><b>${TM.esc(q.name)}${tags}</b><span>${meta} · behind earlier quests</span>${q.why ? `<div class="why">${TM.esc(q.why)}</div>` : ""}</div>`;
+      if (q.wikiLink) { const w = document.createElement("button"); w.textContent = "Wiki"; w.onclick = () => window.api.openUrl(q.wikiLink); row.appendChild(w); }
+      return row;
+    }
+    const objs = q.objectives.map((o) => `<label class="obj${o.done ? " done" : ""}"><input type="checkbox" data-obj="${TM.esc(o.id)}" ${o.done ? "checked" : ""}> ${TM.esc(o.description)}${o.optional ? " (optional)" : ""}${o.maps.length ? ` <em>${TM.esc(o.maps.join(", "))}</em>` : ""}</label>`).join("");
+    row.innerHTML = `<img src="${TM.esc(q.trader.portrait)}"><div class="n"><b>${TM.esc(q.name)}${tags}</b><span>${meta}</span>${q.why ? `<div class="why">${TM.esc(q.why)}</div>` : ""}<div class="objs">${objs}</div></div>`;
+    const b = document.createElement("button");
+    b.textContent = st === "done" ? "Undo" : "Mark done";
+    b.onclick = () => window.api.markQuestDone(q.id, st !== "done").then(() => { questsKey = ""; paintQuests(); });
+    row.appendChild(b);
+    if (q.wikiLink) { const w = document.createElement("button"); w.textContent = "Wiki"; w.onclick = () => window.api.openUrl(q.wikiLink); row.appendChild(w); }
+    row.querySelectorAll("[data-obj]").forEach((cb) => (cb.onchange = () => window.api.markObjectiveDone(cb.dataset.obj, cb.checked)));
+    return row;
   }
 
   let questsPainting = false;
@@ -216,44 +304,20 @@
     if (questsPainting) return;
     questsPainting = true;
     try {
-      window.api.questProgression().then(paintProgression).catch(() => {});
-      const list = await window.api.listQuests();
-      const el = $("questList");
-      if (!list.length) { el.innerHTML = `<div class="k">${snap && snap.data && snap.data.tasks === "missing" ? "quest names and objectives are not downloaded yet" : "no quest data"}</div>`; return; }
-      const STATE = { active: "Accepted", available: "Not started", locked: "Locked behind earlier quests", done: "Done", failed: "Failed" };
-      const groups = { active: [], available: [], locked: [], done: [], failed: [] };
-      for (const q of list) (groups[q.state] || groups.available).push(q);
-      const showDone = snap && snap.settings.showDoneQuests;
-      el.innerHTML = "";
-      for (const st of ["active", "available", "locked", "done", "failed"]) {
-        const list2 = groups[st];
-        if (!list2.length) continue;
-        const h = document.createElement("div");
-        h.className = "qsec";
-        h.textContent = `${STATE[st]} · ${list2.length}`;
-        el.appendChild(h);
-        if ((st === "done" || st === "failed") && !showDone) { const k = document.createElement("div"); k.className = "k"; k.textContent = "hidden — switch on \"show finished\" on the Layers page to list them"; el.appendChild(k); continue; }
-        if (st === "locked") { const k = document.createElement("div"); k.className = "k"; k.textContent = list2.slice(0, 40).map((q) => q.name).join(" · ") + (list2.length > 40 ? ` · +${list2.length - 40} more` : ""); el.appendChild(k); continue; }
-        for (const q of list2) {
-          const row = document.createElement("div");
-          row.className = "qrow" + (st === "done" ? " done" : "");
-          const objs = q.objectives.map((o) => `<label class="obj${o.done ? " done" : ""}"><input type="checkbox" data-obj="${TM.esc(o.id)}" ${o.done ? "checked" : ""}> ${TM.esc(o.description)}${o.optional ? " (optional)" : ""}${o.maps.length ? ` <em>${TM.esc(o.maps.join(", "))}</em>` : ""}</label>`).join("");
-          row.innerHTML = `<img src="${TM.esc(q.trader.portrait)}"><div class="n"><b>${TM.esc(q.name)}</b><span>${TM.esc(q.trader.name)}${q.map ? " · " + TM.esc(q.map) : ""}${q.minPlayerLevel ? " · level " + q.minPlayerLevel + "+" : ""}${q.kappaRequired ? " · Kappa" : ""}</span>${q.why ? `<div class="why">${TM.esc(q.why)}</div>` : ""}<div class="objs">${objs}</div></div>`;
-          const b = document.createElement("button");
-          b.textContent = st === "done" ? "Undo" : "Mark done";
-          b.onclick = () => window.api.markQuestDone(q.id, st !== "done").then(() => { questsPainting = false; paintQuests(); });
-          row.appendChild(b);
-          if (q.wikiLink) { const w = document.createElement("button"); w.textContent = "Wiki"; w.onclick = () => window.api.openUrl(q.wikiLink); row.appendChild(w); }
-          row.querySelectorAll("[data-obj]").forEach((cb) => (cb.onchange = () => window.api.markObjectiveDone(cb.dataset.obj, cb.checked)));
-          el.appendChild(row);
-        }
-      }
+      document.querySelectorAll(".qtabs a").forEach((a) => a.classList.toggle("on", a.dataset.qt === questTab));
+      $("qt-prog").hidden = questTab !== "prog";
+      $("qt-all").hidden = questTab !== "all";
+      if (questTab === "prog") { paintProgression(await window.api.questProgression()); return; }
+      allList = await window.api.listQuests();
+      if (!allList.length) { $("qfilters").innerHTML = ""; $("questList").innerHTML = `<div class="k">${snap && snap.data && snap.data.tasks === "missing" ? "quest names and objectives are not downloaded yet" : "no quest data"}</div>`; return; }
+      paintFilters(allList);
+      renderAll();
     } finally { questsPainting = false; }
   }
   let questsKey = "";
   function questsMaybeRepaint() {
     if (!snap || !$("s-quests").classList.contains("on")) return;
-    const k = JSON.stringify([snap.activeQuestCount, snap.questProgressCount, snap.settings.manualDone, snap.settings.showDoneQuests, snap.data && snap.data.tasks]);
+    const k = JSON.stringify([questTab, snap.activeQuestCount, snap.questProgressCount, snap.settings.manualDone, snap.settings.showDoneQuests, snap.data && snap.data.tasks]);
     if (k !== questsKey) { questsKey = k; paintQuests(); }
   }
 

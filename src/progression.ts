@@ -28,9 +28,12 @@ export interface TrackProgress {
   /** Track quests he can accept right now (all prerequisites done), by level. */
   nextUp: string[];
   goalDone: boolean;
+  /** Face for the track: the trader who hands out the goal (Lightkeeper himself when the data has him). */
+  goalTrader: { id: string; name: string } | null;
 }
 
 export interface TraderProgress {
+  id: string;
   name: string;
   total: number;
   done: number;
@@ -85,6 +88,9 @@ export interface ActiveQuestProgress {
   id: string;
   name: string;
   trader: string;
+  traderId: string;
+  map: string | null;
+  minPlayerLevel: number;
   /** Quests that only open once this one is finished (transitively). */
   unlocks: number;
   objectivesDone: number;
@@ -109,7 +115,7 @@ export interface Progression {
   traders: TraderProgress[];
   activeQuests: ActiveQuestProgress[];
   /** Quests open right now that are not accepted yet, by level. */
-  nextUp: Array<{ id: string; name: string; trader: string; minPlayerLevel: number; kappa: boolean; why: string }>;
+  nextUp: Array<{ id: string; name: string; trader: string; traderId: string; map: string | null; minPlayerLevel: number; kappa: boolean; why: string }>;
 }
 
 const KAPPA_GOALS = ["Collector"];
@@ -208,7 +214,8 @@ export function progression(tasks: TaskDef[], states: Record<string, QuestState>
     for (const t of tasks) if (flag(t)) ids.add(t.id);
     const c = count(ids);
     const nextUp = [...ids].filter((id) => st(id) === "available").map((id) => byId.get(id)!).sort((a, b) => (a.minPlayerLevel ?? 0) - (b.minPlayerLevel ?? 0)).slice(0, 6).map((t) => t.name);
-    return { key, name, goal: goal?.name ?? null, goalLevel: goal?.minPlayerLevel ?? null, total: c.total, done: c.done, active: c.active, chainLeft: longestChain(byId, ids, isDone), nextUp, goalDone: goal ? isDone(goal.id) : false };
+    const face = (key === "lightkeeper" ? tasks.find((t) => t.trader.name === "Lightkeeper")?.trader : null) ?? goal?.trader ?? null;
+    return { key, name, goal: goal?.name ?? null, goalLevel: goal?.minPlayerLevel ?? null, total: c.total, done: c.done, active: c.active, chainLeft: longestChain(byId, ids, isDone), nextUp, goalDone: goal ? isDone(goal.id) : false, goalTrader: face ? { id: face.id, name: face.name } : null };
   };
   const kappa = track("kappa", "Kappa", KAPPA_GOALS, (t) => Boolean(t.kappaRequired));
   const lightkeeper = track("lightkeeper", "Lightkeeper", LIGHTKEEPER_GOALS, (t) => Boolean(t.lightkeeperRequired));
@@ -217,7 +224,7 @@ export function progression(tasks: TaskDef[], states: Record<string, QuestState>
 
   const traderMap = new Map<string, TraderProgress>();
   for (const t of tasks) {
-    const tp = traderMap.get(t.trader.name) ?? { name: t.trader.name, total: 0, done: 0, active: 0, available: 0 };
+    const tp = traderMap.get(t.trader.name) ?? { id: t.trader.id, name: t.trader.name, total: 0, done: 0, active: 0, available: 0 };
     tp.total++;
     const s = st(t.id);
     if (s === "done") tp.done++;
@@ -232,7 +239,7 @@ export function progression(tasks: TaskDef[], states: Record<string, QuestState>
   const activeQuests: ActiveQuestProgress[] = tasks
     .filter((t) => st(t.id) === "active")
     .map((t) => ({
-      id: t.id, name: t.name, trader: t.trader.name,
+      id: t.id, name: t.name, trader: t.trader.name, traderId: t.trader.id, map: t.map?.normalizedName ?? null, minPlayerLevel: t.minPlayerLevel ?? 1,
       unlocks: down.get(t.id)?.size ?? 0,
       objectivesDone: t.objectives.filter((o) => objectiveDone(o.id)).length, objectivesTotal: t.objectives.length,
       kappa: kappaIds.has(t.id), lightkeeper: lkIds.has(t.id), why: whyItMatters(t, ctx),
@@ -243,7 +250,7 @@ export function progression(tasks: TaskDef[], states: Record<string, QuestState>
     .filter((t) => st(t.id) === "available")
     .sort((a, b) => (a.minPlayerLevel ?? 0) - (b.minPlayerLevel ?? 0) || (down.get(b.id)?.size ?? 0) - (down.get(a.id)?.size ?? 0))
     .slice(0, 10)
-    .map((t) => ({ id: t.id, name: t.name, trader: t.trader.name, minPlayerLevel: t.minPlayerLevel ?? 1, kappa: kappaIds.has(t.id), why: whyItMatters(t, ctx) }));
+    .map((t) => ({ id: t.id, name: t.name, trader: t.trader.name, traderId: t.trader.id, map: t.map?.normalizedName ?? null, minPlayerLevel: t.minPlayerLevel ?? 1, kappa: kappaIds.has(t.id), why: whyItMatters(t, ctx) }));
 
   return { ...all, pct, levelAtLeast, phase: ph.phase, phaseText: ph.text, tracks: [kappa, lightkeeper], traders, activeQuests, nextUp };
 }
