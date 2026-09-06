@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("api", {
   refreshData: () => ipcRenderer.invoke("data:refresh"),
   markQuestDone: (id, done) => ipcRenderer.invoke("quest:markDone", id, done),
   listQuests: () => ipcRenderer.invoke("quest:list"),
+  questProgression: () => ipcRenderer.invoke("quest:progression"),
   getQuests: () => ipcRenderer.invoke("quests:get"),
   markObjectiveDone: (id, done) => ipcRenderer.invoke("quest:markObjective", id, done),
   rescanQuests: () => ipcRenderer.invoke("quests:rescan"),

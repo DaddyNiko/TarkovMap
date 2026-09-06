@@ -23,8 +23,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { floorForPosition, interactiveMaps, type MapDef } from "./map-data.js";
 import { GameWatcher, INITIAL_STATE, logsDirFor, scanQuestHistory, type GameState, type LogEvent } from "./game-watcher.js";
 import { ScreenshotFeed, type PlayerFix } from "./screenshot-feed.js";
-import { KeySender } from "./key-sender.js";
-import { DEFAULT_SETTINGS, arenaScreenshotsFolder, defaultScreenshotsFolder, loadSettings, sanitize, saveSettings, type Settings } from "./settings.js";
+import { KeySender, vkFor } from "./key-sender.js";
+import { progression, whyContext, whyItMatters } from "./progression.js";
+import { DEFAULT_SETTINGS, arenaScreenshotsFolder, defaultScreenshotsFolder, isMouseAccel, loadSettings, sanitize, saveSettings, type Settings } from "./settings.js";
 import { detectInstall, myDocuments } from "./install.js";
 import { CACHE_TTL_MS, featuresFor, fetchFeatures, readCache, writeCache, type FeatureCache } from "./map-features.js";
 import { cacheMapTiles, localTemplate, readSvg, tileTemplates, type FetchProgress } from "./tiles.js";
@@ -287,17 +288,27 @@ function toggleOverlayHidden(): void {
   broadcast("overlay-mode", { interactive: overlayInteractive, hidden: overlayHidden });
 }
 
+const HOTKEY_ACTIONS: Record<keyof Settings["hotkeys"], () => void> = {
+  opacityDown: () => patchSettings({ mapOpacity: Math.max(0.15, settings.mapOpacity - 0.1) }),
+  opacityUp: () => patchSettings({ mapOpacity: Math.min(1, settings.mapOpacity + 0.1) }),
+  interact: () => { overlayInteractive = !overlayInteractive; applyClickThrough(); },
+  hide: () => toggleOverlayHidden(),
+  ping: () => dropPing("regroup"),
+};
+/** Keyboard accelerators go to Electron (swallowed system-wide); Mouse3/4/5 are watched by the key helper (the game still gets the click). */
 function registerHotkeys(): void {
   globalShortcut.unregisterAll();
   const tryReg = (acc: string, fn: () => void) => {
     try { if (!globalShortcut.register(acc, fn)) log(`hotkey ${acc} is taken by another app`); } catch (e) { log(`hotkey ${acc}: ${(e as Error).message}`); }
   };
-  const h = settings.hotkeys;
-  if (h.opacityDown) tryReg(h.opacityDown, () => patchSettings({ mapOpacity: Math.max(0.15, settings.mapOpacity - 0.1) }));
-  if (h.opacityUp) tryReg(h.opacityUp, () => patchSettings({ mapOpacity: Math.min(1, settings.mapOpacity + 0.1) }));
-  if (h.interact) tryReg(h.interact, () => { overlayInteractive = !overlayInteractive; applyClickThrough(); });
-  if (h.hide) tryReg(h.hide, toggleOverlayHidden);
-  if (h.ping) tryReg(h.ping, () => dropPing("regroup"));
+  const mouse: Record<string, number> = {};
+  for (const [name, fn] of Object.entries(HOTKEY_ACTIONS) as Array<[keyof Settings["hotkeys"], () => void]>) {
+    const acc = settings.hotkeys[name];
+    if (!acc) continue;
+    if (isMouseAccel(acc)) { const vk = vkFor(acc); if (vk) mouse[name] = vk; }
+    else tryReg(acc, fn);
+  }
+  sender.setHotkeys(mouse);
   tray?.setContextMenu(trayMenu());
 }
 
@@ -751,11 +762,17 @@ function registerIpc(): void {
   ipcMain.handle("quest:list", () => {
     if (!tasks) return [];
     const states = questStates(tasks.tasks, quests, new Set(settings.manualDone));
+    const ctx = whyContext(tasks.tasks);
     return tasks.tasks.map((t) => ({
       id: t.id, name: t.name, trader: { ...t.trader, portrait: `https://assets.tarkov.dev/${t.trader.id}.webp` }, map: t.map?.normalizedName ?? null, state: states[t.id], done: settings.manualDone.includes(t.id),
-      minPlayerLevel: t.minPlayerLevel, wikiLink: t.wikiLink, kappaRequired: t.kappaRequired,
+      minPlayerLevel: t.minPlayerLevel, wikiLink: t.wikiLink, kappaRequired: t.kappaRequired, why: whyItMatters(t, ctx),
       objectives: t.objectives.map((o) => ({ id: o.id, type: o.type, description: o.description, maps: (o.maps ?? []).map((m) => m.normalizedName), done: Boolean(progress.done[o.id]), optional: Boolean(o.optional) })),
     }));
+  });
+  ipcMain.handle("quest:progression", () => {
+    if (!tasks) return null;
+    const states = questStates(tasks.tasks, quests, new Set(settings.manualDone));
+    return progression(tasks.tasks, states, (id) => Boolean(progress.done[id]));
   });
   ipcMain.handle("squad:ping", (_e, text: string) => dropPing(String(text).slice(0, 40) || "ping"));
   ipcMain.handle("squad:status", (_e, flag: string) => squad?.status(String(flag).slice(0, 20)));
@@ -800,6 +817,7 @@ function armDebugCapture(): void {
       if (!w || w.isDestroyed()) continue;
       try {
         if (name === "overlay" || name === "tags") await w.webContents.insertCSS("html{background:#3a3a34 !important}");
+        if (name === "control" && process.env.TARKOVMAP_SHOT_SECTION) { await w.webContents.executeJavaScript(`(function(){const a=document.querySelector('nav a[data-s=' + ${JSON.stringify(JSON.stringify(process.env.TARKOVMAP_SHOT_SECTION))} + ']');if(a)a.click();})()`); await new Promise((r) => setTimeout(r, 2500)); }
         if (name === "control" && process.env.TARKOVMAP_SHOT_SCROLL) { await w.webContents.executeJavaScript(`(function(){const el=document.getElementById(${JSON.stringify(process.env.TARKOVMAP_SHOT_SCROLL)});if(el)el.scrollIntoView({block:"start"});})()`); await new Promise((r) => setTimeout(r, 1500)); }
         const img = await w.webContents.capturePage();
         writeFileSync(join(dir, `${name}.png`), img.toPNG());
@@ -894,6 +912,7 @@ if (!lock) {
         if (gameRunning !== now) { gameRunning = now; log(now ? "Tarkov is running — map windows armed" : "Tarkov closed — back to the tray"); applyOverlayVisibility(); pushSnapshot(); }
         return;
       }
+      if (l.startsWith("hotkey ")) { const name = l.slice(7).trim() as keyof Settings["hotkeys"]; HOTKEY_ACTIONS[name]?.(); return; }
       if (l.startsWith("skip-foreground")) broadcast("sender", l); else if (l.startsWith("err")) log(`key: ${l}`);
     });
     sender.on("log", (l: string) => log(l));

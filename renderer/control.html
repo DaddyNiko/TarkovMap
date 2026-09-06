@@ -65,6 +65,28 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 #pairs div span { min-width: 90px; }
 #pairs div b { color: var(--amber); }
 #pairs div i { font-style: normal; color: var(--dim); flex: 1; }
+#prog .head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+#prog .phase { font-size: 20px; font-weight: 700; color: var(--green); }
+#prog .lvl { font-size: 13px; color: var(--dim); }
+#prog .bar { height: 8px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin: 6px 0 2px; }
+#prog .bar i { display: block; height: 100%; background: var(--green); border-radius: 4px; }
+#prog .bar i.amber { background: #ffc45c; }
+#prog .bar i.cyan { background: var(--cyan); }
+#prog .row { display: flex; justify-content: space-between; font-size: 12px; margin-top: 10px; }
+#prog .row b { font-size: 13px; }
+#prog .row em { font-style: normal; color: var(--dim); }
+#prog .tracks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; }
+#prog .traders { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 14px; margin-top: 4px; }
+#prog .traders .row { margin-top: 4px; }
+#prog .traders .bar { height: 5px; margin: 3px 0 0; }
+#prog .list { font-size: 12px; line-height: 1.7; }
+#prog .list em { font-style: normal; color: var(--dim); }
+#prog .tag { display: inline-block; font-size: 9px; letter-spacing: 1px; text-transform: uppercase; padding: 0 5px; border-radius: 4px; margin-left: 5px; vertical-align: 1px; }
+#prog .tag.k { color: #ffc45c; border: 1px solid rgba(255,196,92,.5); }
+#prog .tag.l { color: var(--cyan); border: 1px solid rgba(90,220,255,.45); }
+.why { font-size: 11px; color: rgba(255,255,255,.55); margin: 1px 0 3px; line-height: 1.4; }
+#prog .list .why { margin: 0 0 7px; }
+#prog .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 4px; }
 .qsec { font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: var(--dim); margin: 12px 0 4px; }
 .qrow.done { opacity: .45; }
 .qrow .objs { margin-top: 4px; }
@@ -159,6 +181,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h2>Quests</h2>
       <div class="sub">Accepted, not started, locked and done, from the game's own notifications. Visit and extract objectives tick themselves from your position; item counts (2/5) are not in the logs, so tick those by hand. Your level is not in the logs either, so "not started" only means the earlier quests are done.</div>
       <div class="notice" id="questNotice"></div>
+      <div class="card" id="progCard"><div id="prog"></div></div>
       <div class="card"><div id="questList"></div></div>
     </section>
 
@@ -200,7 +223,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
         <button class="pri" id="bTest">Test: wait for one screenshot</button><span id="testOut" class="k"></span>
       </div>
       <div class="card"><h3>3 · Hotkeys</h3>
-        <p class="p">A key the app takes here is <b>swallowed before Tarkov sees it</b>, so pick keys the game does not use, or switch one off. Click a box, press the key (with Ctrl / Alt / Shift if you like); Backspace switches it off. The hold-to-stream key above is different: the app only watches it, Tarkov still gets it.</p>
+        <p class="p">A key the app takes here is <b>swallowed before Tarkov sees it</b>, so pick keys the game does not use, or switch one off. Click a box, then press the key (with Ctrl / Alt / Shift if you like) or a mouse button — middle, back or forward; Backspace switches it off. A mouse button is only watched, so Tarkov still gets the click. The hold-to-stream key above is different: the app only watches it, Tarkov still gets it.</p>
         <div class="grid3">
           <div><label class="f">Ping "regroup" at my spot</label><input type="text" class="hk" data-hk="ping" readonly placeholder="off"></div>
           <div><label class="f">Map opacity down</label><input type="text" class="hk" data-hk="opacityDown" readonly placeholder="off"></div>

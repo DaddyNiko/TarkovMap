@@ -77,7 +77,10 @@ export interface Settings {
 
 export interface Hotkeys { ping: string; opacityDown: string; opacityUp: string; interact: string; hide: string; }
 export const DEFAULT_HOTKEYS: Hotkeys = { ping: "F6", opacityDown: "F7", opacityUp: "F8", interact: "F9", hide: "F10" };
-const ACCEL = /^((Ctrl|Alt|Shift|Super)\+){0,3}(F([1-9]|1\d|2[0-4])|[A-Z0-9]|Space|Tab|Capslock|Numlock|Scrolllock|Insert|Delete|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|Escape|Printscreen|Pause|num[0-9]|numadd|numsub|nummult|numdiv|numdec|[`\-=\[\]\\;',./])$/;
+const ACCEL = /^((Ctrl|Alt|Shift|Super)\+){0,3}(F([1-9]|1\d|2[0-4])|[A-Z0-9]|Space|Tab|Capslock|Numlock|Scrolllock|Insert|Delete|Home|End|PageUp|PageDown|Up|Down|Left|Right|Plus|Escape|Printscreen|Pause|num[0-9]|numadd|numsub|nummult|numdiv|numdec|Mouse[345]|[`\-=\[\]\\;',./])$/;
+/** Mouse3 / Mouse4 / Mouse5 are watched by the key helper (GetAsyncKeyState), not registered with Electron; the game still gets the click. */
+export const MOUSE_ACCEL = /^Mouse([345])$/;
+export function isMouseAccel(acc: string): boolean { return MOUSE_ACCEL.test(acc); }
 /** Keep a valid accelerator, blank an invalid one, drop duplicates (the second binding of one key loses). */
 export function sanitizeHotkeys(h: unknown): Hotkeys {
   const src = (h && typeof h === "object" ? h : {}) as Record<string, unknown>;

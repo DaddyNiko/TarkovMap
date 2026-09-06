@@ -47,6 +47,9 @@ export interface TaskDef {
   taskRequirements?: Array<{ task: string; status: string[] }>;
   wikiLink?: string;
   kappaRequired?: boolean;
+  lightkeeperRequired?: boolean;
+  /** Traders this quest unlocks on completion (finishRewards.traderUnlock). */
+  unlocksTraders?: string[];
   /** Key NAMES needed per map (resolved from ids by the converter). */
   neededKeys?: Array<{ map: string | null; keys: string[] }>;
   factionName?: string;
@@ -54,7 +57,8 @@ export interface TaskDef {
 
 export const TASKS_QUERY = `{
   tasks(lang: en) {
-    id name minPlayerLevel
+    id name minPlayerLevel kappaRequired lightkeeperRequired
+    finishRewards { traderUnlock { name } }
     trader { id name }
     map { normalizedName }
     objectives {
@@ -76,7 +80,7 @@ export interface TaskCache {
   /** Bumped when the stored shape gains fields the app needs; an older cache is refetched. */
   version?: number;
 }
-export const TASK_CACHE_VERSION = 2;
+export const TASK_CACHE_VERSION = 3;
 
 export function readTaskCache(file: string, opts: { allowOld?: boolean } = {}): TaskCache | null {
   try {

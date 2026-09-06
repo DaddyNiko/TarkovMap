@@ -35,7 +35,7 @@ export interface JsonMapsPayload {
   data: { maps: Record<string, JsonMap> | JsonMap[]; mobs?: Record<string, { id?: string; name?: string; normalizedName?: string }>; lootContainers?: Record<string, { name?: string; normalizedName?: string }>; stationaryWeapons?: Record<string, { name?: string; normalizedName?: string }> };
 }
 interface JsonObjective { id: string; type: string; description?: string; count?: number; items?: string[]; foundInRaid?: boolean; optional?: boolean; questItem?: string | null; zones?: Array<{ id?: string; map?: string; position: Vec3; outline?: Vec3[] }>; possibleLocations?: Array<{ map?: string; positions?: Vec3[] }> }
-interface JsonTask { id: string; name: string; normalizedName?: string; trader?: string; map?: string | null; minPlayerLevel?: number; objectives?: JsonObjective[]; taskRequirements?: Array<{ task: string; status?: string[] }>; wikiLink?: string; kappaRequired?: boolean; neededKeys?: Array<{ map?: string | null; keys?: string[] }>; factionName?: string }
+interface JsonTask { id: string; name: string; normalizedName?: string; trader?: string; map?: string | null; minPlayerLevel?: number; objectives?: JsonObjective[]; taskRequirements?: Array<{ task: string; status?: string[] }>; wikiLink?: string; kappaRequired?: boolean; lightkeeperRequired?: boolean; finishRewards?: { traderUnlock?: Array<string | { name?: string; id?: string }> }; neededKeys?: Array<{ map?: string | null; keys?: string[] }>; factionName?: string }
 export interface JsonTasksPayload { data: { tasks: Record<string, JsonTask> | JsonTask[]; questItems?: Record<string, { name?: string }> } }
 
 const values = <T>(x: Record<string, T> | T[] | undefined): T[] => (Array.isArray(x) ? x : Object.values(x ?? {}));
@@ -133,7 +133,8 @@ export function convertJsonTasks(payload: JsonTasksPayload, idToKey: Record<stri
     return {
       id: t.id, name: names[t.name] ?? taskNameFallback(t), trader: { id: t.trader ?? "", name: t.trader ? nameOf(names, `${t.trader} Nickname`, t.trader) : "" }, map: keyFor(t.map), objectives, minPlayerLevel: t.minPlayerLevel,
       taskRequirements: (t.taskRequirements ?? []).map((r) => ({ task: r.task, status: r.status ?? ["complete"] })),
-      wikiLink: t.wikiLink, kappaRequired: Boolean(t.kappaRequired), factionName: t.factionName,
+      wikiLink: t.wikiLink, kappaRequired: Boolean(t.kappaRequired), lightkeeperRequired: Boolean(t.lightkeeperRequired), factionName: t.factionName,
+      unlocksTraders: (t.finishRewards?.traderUnlock ?? []).map((u) => (typeof u === "string" ? nameOf(names, `${u} Nickname`, u) : u.name ?? (u.id ? nameOf(names, `${u.id} Nickname`, u.id) : ""))).filter(Boolean),
       neededKeys: (t.neededKeys ?? []).filter((k) => k.keys?.length).map((k) => ({ map: k.map ? idToKey[k.map] ?? k.map : null, keys: (k.keys ?? []).map((id) => itemName(names, id)) })),
     };
   });

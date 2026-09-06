@@ -64,9 +64,10 @@ export function powershellExe(): string {
  * The resident helper. Commands (one per line on stdin):
  *   cfg <mode> <screenshotVk> <holdVk> <intervalMs>
  *   raid 0|1
+ *   hk <name>:<vk>,<name>:<vk>,…   (mouse-button hotkeys to watch; empty = none)
  *   press            (one immediate press if EFT is foreground)
  *   quit
- * Output lines: `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `fg <process>` (foreground app
+ * Output lines: `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `hotkey <name>` (a watched mouse button went down), `fg <process>` (foreground app
  * changed; polled twice a second), `game 1|0` (Tarkov/Arena process exists; polled every 5 s), `err <text>`.
  */
 export const HELPER_SCRIPT = String.raw`
@@ -111,6 +112,7 @@ public static class TkInput {
 "@
 $mode = "manual"; $shotVk = 0x7A; $holdVk = 0x14; $interval = 2000; $inRaid = $false
 $holding = $false; $lastSent = [DateTime]::MinValue; $fgLast = ""; $gLast = $null; $tick = 0
+$hk = @{}; $hkDown = @{}
 $gameNames = @("EscapeFromTarkov", "EscapeFromTarkovArena", "EscapeFromTarkov_BE", "EscapeFromTarkovArena_BE")
 function Game-InFront { return ($gameNames -contains [TkInput]::ForegroundProcess()) }
 function Send-Shot {
@@ -136,6 +138,7 @@ while ($true) {
     switch ($p[0]) {
       "cfg" { $mode = $p[1]; $shotVk = [int]$p[2]; $holdVk = [int]$p[3]; $interval = [int]$p[4]; [Console]::Out.WriteLine("cfg-ok " + $mode) }
       "raid" { $inRaid = ($p[1] -eq "1") }
+      "hk" { $hk = @{}; $hkDown = @{}; if ($p.Length -gt 1 -and $p[1]) { foreach ($pair in $p[1].Split(",")) { $kv = $pair.Split(":"); if ($kv.Length -eq 2) { $hk[$kv[0]] = [int]$kv[1] } } }; [Console]::Out.WriteLine("hk-ok " + $hk.Count) }
       "press" { Send-Shot }
       "quit" { exit 0 }
     }
@@ -144,6 +147,11 @@ while ($true) {
   $tick++
   if (($tick % 5) -eq 0) { $fgNow = [TkInput]::ForegroundProcess(); if ($fgNow -ne $fgLast) { $fgLast = $fgNow; [Console]::Out.WriteLine("fg " + $fgNow) } }
   if (($tick % 50) -eq 1) { $gNow = [bool](Get-Process -Name EscapeFromTarkov, EscapeFromTarkovArena -ErrorAction SilentlyContinue); if ($gNow -ne $gLast) { $gLast = $gNow; [Console]::Out.WriteLine("game " + $(if ($gNow) { "1" } else { "0" })) } }
+  foreach ($name in @($hk.Keys)) {
+    $d = [TkInput]::Held($hk[$name])
+    if ($d -and -not $hkDown[$name]) { [Console]::Out.WriteLine("hotkey " + $name) }
+    $hkDown[$name] = $d
+  }
   $now = [DateTime]::UtcNow
   $due = ($now - $lastSent).TotalMilliseconds -ge $interval
   if ($mode -eq "hold") {
@@ -165,6 +173,7 @@ export class KeySender extends EventEmitter {
   private cfg: KeySenderConfig = { ...DEFAULT_SENDER };
   private inRaid = false;
   private ready = false;
+  private hotkeys: Record<string, number> = {};
 
   start(): void {
     if (this.child) return;
@@ -197,6 +206,7 @@ export class KeySender extends EventEmitter {
       this.ready = true;
       this.pushConfig();
       this.write(`raid ${this.inRaid ? 1 : 0}`);
+      this.pushHotkeys();
     }
     this.emit("line", l);
     if (l === "sent") this.emit("sent");
@@ -216,6 +226,17 @@ export class KeySender extends EventEmitter {
     const shot = vkFor(this.cfg.screenshotKey) ?? VK.F11;
     const hold = vkFor(this.cfg.holdKey) ?? VK.CapsLock;
     this.write(`cfg ${this.cfg.mode} ${shot} ${hold} ${Math.max(500, this.cfg.intervalMs | 0)}`);
+  }
+
+  /** Mouse-button hotkeys to watch: action name → virtual-key code. Replaces the previous set. */
+  setHotkeys(map: Record<string, number>): void {
+    this.hotkeys = { ...map };
+    if (this.ready) this.pushHotkeys();
+  }
+
+  private pushHotkeys(): void {
+    const list = Object.entries(this.hotkeys).map(([k, v]) => `${k}:${v}`).join(",");
+    this.write(`hk ${list}`);
   }
 
   setInRaid(v: boolean): void {

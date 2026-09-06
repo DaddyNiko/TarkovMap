@@ -67,16 +67,19 @@
   document.querySelectorAll(".hk").forEach((inp) => {
     inp.onfocus = () => { inp.dataset.was = inp.value; inp.value = ""; inp.placeholder = "press a key…"; };
     inp.onblur = () => { if (!inp.value && inp.dataset.armed !== "off") inp.value = inp.dataset.was || ""; inp.placeholder = "off"; inp.dataset.armed = ""; };
-    inp.onkeydown = async (e) => {
-      e.preventDefault();
-      const acc = accelFrom(e);
-      if (acc === null) return;
+    const bind = async (acc) => {
       inp.dataset.armed = acc ? "" : "off"; inp.dataset.was = acc;
       const fresh = await window.api.saveSettings({ hotkeys: { [inp.dataset.hk]: acc } });
       const got = fresh.settings.hotkeys[inp.dataset.hk];
-      $("hkOut").textContent = acc && got !== acc ? `${acc} is already used by another action — pick a different key` : acc ? `${acc} saved` : "switched off";
+      $("hkOut").textContent = acc && got !== acc ? `${acc} is already used by another action — pick a different key` : acc ? `${acc} saved${/^Mouse/.test(acc) ? " — a mouse button is watched, not swallowed, so Tarkov still gets the click" : ""}` : "switched off";
       inp.value = got; inp.dataset.was = got; inp.blur();
     };
+    inp.onkeydown = (e) => { e.preventDefault(); const acc = accelFrom(e); if (acc !== null) bind(acc); };
+    // Middle / back / forward mouse buttons bind too (left click only focuses the box; right click is left alone).
+    const MOUSE = { 1: "Mouse3", 3: "Mouse4", 4: "Mouse5" };
+    inp.onmousedown = (e) => { if (document.activeElement === inp && MOUSE[e.button]) { e.preventDefault(); bind(MOUSE[e.button]); } };
+    inp.onauxclick = (e) => { if (MOUSE[e.button]) e.preventDefault(); };
+    inp.placeholder = "off";
   });
   $("ask").onkeydown = async (e) => {
     if (e.key !== "Enter" || !snap || !mapPayload) return;
@@ -184,11 +187,36 @@
     el.innerHTML = mates.length ? mates.map((m) => `<div class="row"><span class="g" style="background:${TM.COLORS.squad}"></span><span>${TM.esc(m.name)}</span><span class="d">${m.floor || ""} ${m.moving ? "moving" : "still"} ${m.flag ? "· " + TM.esc(m.flag) : ""} · ${Math.round((Date.now() - m.at) / 1000)} s ago</span>${snap.fix ? `<span class="m">${Math.round(TM.dist(snap.fix, m))}<em>m</em></span>` : ""}</div>`).join("") : `<div class="k">${snap.settings.squadEnabled ? "nobody sharing yet — same code, same raid, same network" : "sharing is off"}</div>`;
   }
 
+  function paintProgression(p) {
+    const el = $("prog");
+    if (!p || !p.total) { el.innerHTML = `<div class="k">no quest data yet</div>`; return; }
+    const pc = (n, d) => (d ? Math.round((n / d) * 100) : 0);
+    const bar = (n, d, cls) => `<div class="bar"><i class="${cls || ""}" style="width:${pc(n, d)}%"></i></div>`;
+    const track = (t) => {
+      const left = t.total - t.done;
+      const goal = t.goalDone ? `${TM.esc(t.goal)} done` : t.goal ? `ends at ${TM.esc(t.goal)}${t.goalLevel ? " (level " + t.goalLevel + ")" : ""}` : "no goal quest in the data";
+      const next = t.nextUp.length ? `next: ${t.nextUp.map(TM.esc).join(", ")}` : left ? "nothing openable yet — finish what is accepted" : "";
+      return `<div><div class="row"><b>${TM.esc(t.name)}</b><em>${t.done} / ${t.total} · ${pc(t.done, t.total)}%</em></div>${bar(t.done, t.total, t.key === "kappa" ? "amber" : "cyan")}<div class="list"><em>${goal} · ${left} left, ${t.active} accepted · at least ${t.chainLeft} in a row still ahead</em><br>${next}</div></div>`;
+    };
+    const traders = p.traders.map((t) => `<div><div class="row"><b>${TM.esc(t.name)}</b><em>${t.done}/${t.total}${t.active ? " · " + t.active + " on" : ""}</em></div>${bar(t.done, t.total)}</div>`).join("");
+    const active = p.activeQuests.slice(0, 12).map((a) => `${TM.esc(a.name)} <em>${TM.esc(a.trader)} · ${a.objectivesDone}/${a.objectivesTotal} objectives${a.unlocks ? " · unlocks " + a.unlocks + " more" : " · end of its line"}</em>${a.kappa ? '<span class="tag k">kappa</span>' : ""}${a.lightkeeper ? '<span class="tag l">lightkeeper</span>' : ""}<div class="why">${TM.esc(a.why)}</div>`).join("") + (p.activeQuests.length > 12 ? `<br><em>+${p.activeQuests.length - 12} more accepted</em>` : "");
+    const next = p.nextUp.length ? p.nextUp.map((n) => `${TM.esc(n.name)} <em>${TM.esc(n.trader)}${n.minPlayerLevel > 1 ? " · level " + n.minPlayerLevel + "+" : ""}</em>${n.kappa ? '<span class="tag k">kappa</span>' : ""}<div class="why">${TM.esc(n.why)}</div>`).join("") : "<em>nothing new opens until an accepted quest is finished</em>";
+    el.innerHTML = `<div class="k">Your progression</div>
+      <div class="head"><span class="phase">${TM.esc(p.phaseText.split(" — ")[0])}</span><span class="lvl">level ${p.levelAtLeast}+ · ${p.done} of ${p.total} quests done (${pc(p.done, p.total)}%) · ${p.active} accepted · ${p.available} ready to accept · ${p.locked} locked</span></div>
+      <div class="lvl" style="margin-top:2px">${TM.esc(p.phaseText.split(" — ")[1] || "")}. Your level is not in the logs, so "level ${p.levelAtLeast}+" is the highest level a quest the game confirmed asks for.</div>
+      ${bar(p.done, p.total)}
+      <div class="tracks">${p.tracks.map(track).join("")}</div>
+      <div class="k" style="margin-top:14px">By trader</div><div class="traders">${traders}</div>
+      <div class="cols"><div><div class="k" style="margin-top:14px">Accepted · what each one opens</div><div class="list">${active || "<em>nothing accepted</em>"}</div></div>
+      <div><div class="k" style="margin-top:14px">Ready to accept</div><div class="list">${next}</div></div></div>`;
+  }
+
   let questsPainting = false;
   async function paintQuests() {
     if (questsPainting) return;
     questsPainting = true;
     try {
+      window.api.questProgression().then(paintProgression).catch(() => {});
       const list = await window.api.listQuests();
       const el = $("questList");
       if (!list.length) { el.innerHTML = `<div class="k">${snap && snap.data && snap.data.tasks === "missing" ? "quest names and objectives are not downloaded yet" : "no quest data"}</div>`; return; }
@@ -210,7 +238,7 @@
           const row = document.createElement("div");
           row.className = "qrow" + (st === "done" ? " done" : "");
           const objs = q.objectives.map((o) => `<label class="obj${o.done ? " done" : ""}"><input type="checkbox" data-obj="${TM.esc(o.id)}" ${o.done ? "checked" : ""}> ${TM.esc(o.description)}${o.optional ? " (optional)" : ""}${o.maps.length ? ` <em>${TM.esc(o.maps.join(", "))}</em>` : ""}</label>`).join("");
-          row.innerHTML = `<img src="${TM.esc(q.trader.portrait)}"><div class="n"><b>${TM.esc(q.name)}</b><span>${TM.esc(q.trader.name)}${q.map ? " · " + TM.esc(q.map) : ""}${q.minPlayerLevel ? " · level " + q.minPlayerLevel + "+" : ""}${q.kappaRequired ? " · Kappa" : ""}</span><div class="objs">${objs}</div></div>`;
+          row.innerHTML = `<img src="${TM.esc(q.trader.portrait)}"><div class="n"><b>${TM.esc(q.name)}</b><span>${TM.esc(q.trader.name)}${q.map ? " · " + TM.esc(q.map) : ""}${q.minPlayerLevel ? " · level " + q.minPlayerLevel + "+" : ""}${q.kappaRequired ? " · Kappa" : ""}</span>${q.why ? `<div class="why">${TM.esc(q.why)}</div>` : ""}<div class="objs">${objs}</div></div>`;
           const b = document.createElement("button");
           b.textContent = st === "done" ? "Undo" : "Mark done";
           b.onclick = () => window.api.markQuestDone(q.id, st !== "done").then(() => { questsPainting = false; paintQuests(); });

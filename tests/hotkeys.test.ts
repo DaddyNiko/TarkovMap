@@ -21,3 +21,19 @@ describe("hotkeys", () => {
     expect(h.opacityUp).toBe("");
   });
 });
+
+import { isMouseAccel } from "../src/settings.js";
+import { HELPER_SCRIPT as HELPER } from "../src/key-sender.js";
+describe("mouse-button hotkeys", () => {
+  it("Mouse3/4/5 are valid accelerators and flagged as mouse; modifiers are not allowed on them", () => {
+    expect(sanitizeHotkeys({ ...DEFAULT_HOTKEYS, ping: "Mouse3" }).ping).toBe("Mouse3");
+    expect(sanitizeHotkeys({ ...DEFAULT_HOTKEYS, ping: "Mouse5" }).ping).toBe("Mouse5");
+    expect(sanitizeHotkeys({ ...DEFAULT_HOTKEYS, ping: "Mouse2" }).ping).toBe("F6");
+    expect(isMouseAccel("Mouse4")).toBe(true);
+    expect(isMouseAccel("F6")).toBe(false);
+  });
+  it("the key helper watches them and reports a press edge", () => {
+    expect(HELPER).toMatch(/"hk" \{/);
+    expect(HELPER).toContain('"hotkey " + $name');
+  });
+});
