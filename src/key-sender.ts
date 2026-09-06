@@ -11,8 +11,10 @@
  *   timer  — sends every `intervalMs` whenever `inRaid` is true.
  *
  * One PowerShell helper stays resident (spawning one per press would cost
- * ~300 ms and a console flash). It reads commands on stdin and reports on
- * stdout, so the app never has to poll anything itself.
+ * ~300 ms and a console flash). It reads commands on stdin (on a second
+ * runspace — Console.In.ReadLineAsync blocks on a pipe, which used to stall
+ * the whole poll loop after the first command) and reports on stdout, so
+ * the app never has to poll anything itself.
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -127,13 +129,19 @@ function Send-Shot {
   $script:lastSent = [DateTime]::UtcNow
 }
 [Console]::Out.WriteLine("ready")
-$in = [Console]::In
-# stdin is a pipe: read it asynchronously so the poll loop never blocks.
-$pending = $in.ReadLineAsync()
+# stdin is a pipe and Console.In has no real async read (ReadLineAsync blocks), so a second runspace
+# reads lines on its own thread and drops them in a queue; the poll loop below never waits on it.
+$queue = New-Object System.Collections.Concurrent.ConcurrentQueue[string]
+$rs = [runspacefactory]::CreateRunspace(); $rs.Open()
+$rs.SessionStateProxy.SetVariable("queue", $queue)
+$rs.SessionStateProxy.SetVariable("stdin", [Console]::In)
+$reader = [powershell]::Create(); $reader.Runspace = $rs
+$null = $reader.AddScript('while ($true) { $l = $stdin.ReadLine(); if ($null -eq $l) { $queue.Enqueue([char]4); break }; $queue.Enqueue($l) }')
+$null = $reader.BeginInvoke()
 while ($true) {
-  while ($pending.IsCompleted) {
-    $line = $pending.Result
-    if ($null -eq $line) { exit 0 }
+  $line = $null
+  while ($queue.TryDequeue([ref]$line)) {
+    if ($line -eq [string][char]4) { exit 0 }
     $p = $line.Trim().Split(" ")
     switch ($p[0]) {
       "cfg" { $mode = $p[1]; $shotVk = [int]$p[2]; $holdVk = [int]$p[3]; $interval = [int]$p[4]; [Console]::Out.WriteLine("cfg-ok " + $mode) }
@@ -142,7 +150,6 @@ while ($true) {
       "press" { Send-Shot }
       "quit" { exit 0 }
     }
-    $pending = $in.ReadLineAsync()
   }
   $tick++
   if (($tick % 5) -eq 0) { $fgNow = [TkInput]::ForegroundProcess(); if ($fgNow -ne $fgLast) { $fgLast = $fgNow; [Console]::Out.WriteLine("fg " + $fgNow) } }
