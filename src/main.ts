@@ -23,7 +23,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { floorForPosition, interactiveMaps, type MapDef } from "./map-data.js";
 import { GameWatcher, INITIAL_STATE, logsDirFor, scanQuestHistory, type GameState, type LogEvent } from "./game-watcher.js";
 import { ScreenshotFeed, type PlayerFix } from "./screenshot-feed.js";
-import { KeySender, vkFor } from "./key-sender.js";
+import { KeySender, PRESS_STYLES, vkFor } from "./key-sender.js";
 import { progression, whyContext, whyItMatters } from "./progression.js";
 import { execFile } from "node:child_process";
 import { DEFAULT_SETTINGS, arenaScreenshotsFolder, defaultScreenshotsFolder, isMouseAccel, loadSettings, sanitize, saveSettings, type Settings } from "./settings.js";
@@ -86,6 +86,8 @@ const logLines: string[] = [];
 let quitting = false;
 let overlayInteractive = false;
 let overlayHidden = false;
+/** Left or right mouse button held while Tarkov is in front (from the key helper). */
+let aiming = false;
 /** Timestamps every link of the chain leaves behind, for the health card and health.json. */
 const health = { helperAt: 0, sentAt: 0, sent: [] as number[], fileAt: 0, unparsedAt: 0, lastFile: "", fixAt: 0, skipAt: 0, skipApp: "" };
 /** Windows' "Print screen opens Snipping Tool" switch: true/false when the registry says, null when unset (Windows 11 default = on). */
@@ -116,6 +118,7 @@ function healthRows(): HealthRow[] {
   if (raw != null) {
     if (!bind) { bindOk = false; bindDetail = `Tarkov's Make screenshot is "${raw}" — a combo the app cannot press. Rebind it to a single key like F11 in Tarkov ▸ Settings ▸ Controls.`; }
     else if (bind === "PrintScreen" && printScreenBlocked()) { bindOk = false; bindDetail = `Tarkov's Make screenshot is Print Screen, and Windows hands Print Screen to Snipping Tool before the game sees it. Rebind Make screenshot to F11 in Tarkov ▸ Settings ▸ Controls (20 seconds, once), or switch off "Use the Print screen key to open screen capture" in Windows Settings ▸ Accessibility ▸ Keyboard.`; }
+    else if (bind === "F12") { bindOk = false; bindDetail = `Tarkov's Make screenshot is F12, which Steam's overlay grabs for its own screenshot (with the shutter sound) — the app will not press it. Rebind Make screenshot to F11 in Tarkov ▸ Settings ▸ Controls.`; }
     else if (bind !== settings.screenshotKey) { bindOk = false; bindDetail = `Tarkov has ${bind}, the app presses ${settings.screenshotKey}`; }
     else { bindOk = true; bindDetail = `${bind} — read from the game's own log`; }
   }
@@ -124,7 +127,7 @@ function healthRows(): HealthRow[] {
   const pressOk = settings.mode === "manual" ? null : recent > 0 ? true : front ? false : null;
   rows.push({ id: "press", ok: pressOk, label: "Presses sent", detail: settings.mode === "manual" ? "manual mode — you press the key yourself" : recent ? `${recent} in the last 30 s, last ${ago(health.sentAt)}` : front ? `none in 30 s (mode ${settings.mode})${health.skipAt && now - health.skipAt < 30000 ? ` — skipped, ${health.skipApp} was in front` : ""}` : "waiting for Tarkov in front" });
   const fileOk = health.fileAt ? now - health.fileAt < 60000 : null;
-  rows.push({ id: "file", ok: recent ? Boolean(fileOk) : fileOk, label: "Screenshot files", detail: health.fileAt ? `last ${ago(health.fileAt)}${health.unparsedAt > health.fixAt ? " — but the name carried no position (not the game's format?)" : ""}` : recent ? "none appeared after the presses — the game is not taking screenshots on that key" : "none yet" });
+  rows.push({ id: "file", ok: recent ? Boolean(fileOk) : fileOk, label: "Screenshot files", detail: health.fileAt ? `last ${ago(health.fileAt)}${health.unparsedAt > health.fixAt ? " — but the name carried no position (not the game's format?)" : ""}` : recent ? `none after the presses (style "${settings.pressStyle}", rotating every 8 presses). Press ${settings.screenshotKey} yourself once in raid: a file here means the game ignores synthetic presses; none means it is not writing to ${settings.screenshotsFolder}` : "none yet" });
   const fixOk = health.fixAt ? now - health.fixAt < 60000 : null;
   rows.push({ id: "fix", ok: health.fileAt ? fixOk : null, label: "Position", detail: lastFix ? `${ago(health.fixAt)} · x ${lastFix.x.toFixed(0)} z ${lastFix.z.toFixed(0)}` : "no fix yet" });
   const logAge = game?.lastLogAt ? age(game.lastLogAt) : -1;
@@ -139,6 +142,22 @@ function healthRows(): HealthRow[] {
 function writeHealth(): void {
   try { writeFileSync(join(USER(), "health.json"), JSON.stringify({ at: Date.now(), version: app.getVersion(), rows: healthRows(), state: { mode: settings.mode, screenshotKey: settings.screenshotKey, bind: gameState.screenshotBind ?? null, bindRaw: gameState.screenshotBindRaw ?? null, printScreenSnipping, foregroundApp, gameRunning, raid: gameState.raid, mapKey: gameState.mapKey, fix: lastFix ? { x: lastFix.x, y: lastFix.y, z: lastFix.z, at: lastFix.at } : null } }, null, 1)); } catch { /* disk */ }
 }
+/** Self-healing: after 8 presses with no screenshot file, try the next way of synthesising the key. */
+let pressesSinceFile = 0;
+let lastRotateAt = 0;
+function maybeRotateStyle(): void {
+  if (health.fileAt > health.sentAt - 4000) { pressesSinceFile = 0; return; }
+  pressesSinceFile++;
+  if (pressesSinceFile < 8 || Date.now() - lastRotateAt < 15000) return;
+  pressesSinceFile = 0;
+  lastRotateAt = Date.now();
+  const i = PRESS_STYLES.indexOf(settings.pressStyle);
+  const next = PRESS_STYLES[(i + 1) % PRESS_STYLES.length];
+  log(`no screenshot after 8 presses with style "${settings.pressStyle}" — trying "${next}"`);
+  patchSettings({ pressStyle: next });
+  armSender();
+}
+
 /** Press once and watch the chain for up to 6 s: which link answered. */
 async function healthTest(): Promise<{ sent: boolean; file: boolean; fix: boolean; rows: HealthRow[] }> {
   const t0 = Date.now();
@@ -164,6 +183,7 @@ const GAME_PROCESSES = new Set(["EscapeFromTarkov", "EscapeFromTarkovArena", "Es
 /** The overlay is on screen only when he has not hidden it AND (the game is in front, or the gate is off). */
 function overlayWanted(): boolean {
   if (overlayHidden) return false;
+  if (aiming && settings.hideWhileAiming) return false;
   if (!settings.overlayOnlyInGame) return true;
   return GAME_PROCESSES.has(foregroundApp);
 }
@@ -500,7 +520,9 @@ function feedStats(): { files: number; bytes: number } {
 }
 
 function armSender(): void {
-  sender.configure({ mode: settings.mode, screenshotKey: settings.screenshotKey, holdKey: settings.holdKey, intervalMs: settings.intervalMs });
+  // Never press F12: Steam's overlay answers it with its own screenshot (and the shutter sound) instead of the game.
+  const key = settings.screenshotKey === "F12" ? "F11" : settings.screenshotKey;
+  sender.configure({ mode: settings.mode, screenshotKey: key, holdKey: settings.holdKey, intervalMs: settings.intervalMs, style: settings.pressStyle });
   sender.start(); // also the foreground-app reporter, so it runs in manual mode too
 }
 
@@ -997,7 +1019,8 @@ if (!lock) {
     armDebugCapture();
     sender.on("line", (l: string) => {
       health.helperAt = Date.now();
-      if (l === "sent") { health.sentAt = Date.now(); health.sent.push(health.sentAt); if (health.sent.length > 200) health.sent.splice(0, 100); return; }
+      if (l === "sent") { health.sentAt = Date.now(); health.sent.push(health.sentAt); if (health.sent.length > 200) health.sent.splice(0, 100); maybeRotateStyle(); return; }
+      if (l.startsWith("aim ")) { const now = l.slice(4).trim() === "1"; if (aiming !== now) { aiming = now; applyOverlayVisibility(); } return; }
       if (l.startsWith("skip-foreground")) { health.skipAt = Date.now(); health.skipApp = l.slice(15).trim(); }
       if (l.startsWith("fg ")) { foregroundApp = l.slice(3).trim(); applyOverlayVisibility(); if (GAME_PROCESSES.has(foregroundApp)) retopOverlay(); return; }
       if (l.startsWith("game ")) {

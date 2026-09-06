@@ -1,4 +1,5 @@
 /** settings.json in userData. The OpenRouter key is the only secret; it is stored as-is (single-user PC) and never leaves the machine except to openrouter.ai. */
+import { PRESS_STYLES, type PressStyle } from "./key-sender.js";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { SendMode } from "./key-sender.js";
@@ -11,6 +12,10 @@ export interface Settings {
   /** Debug-only escape hatch; there is deliberately no UI for it. */
   deleteScreenshots: boolean;
   mode: SendMode;
+  /** How the screenshot key is synthesised; rotated by the app until the game answers with a file. */
+  pressStyle: PressStyle;
+  /** Hide the minimap and panel while the left or right mouse button is held in game (aiming / firing). */
+  hideWhileAiming: boolean;
   screenshotKey: string;
   holdKey: string;
   intervalMs: number;
@@ -104,6 +109,8 @@ export const DEFAULT_SETTINGS: Settings = {
   screenshotsFolder: null,
   deleteScreenshots: true,
   mode: "auto",
+  pressStyle: "vk",
+  hideWhileAiming: true,
   screenshotKey: "F11",
   holdKey: "CapsLock",
   intervalMs: 2000,
@@ -181,6 +188,8 @@ export function sanitize(s: Settings): Settings {
     showDoneQuests: Boolean(s.showDoneQuests),
     corner: CORNERS.includes(s.corner) ? s.corner : "top-right",
     mode: (["auto", "manual", "hold", "timer"] as const).includes(s.mode) ? s.mode : "auto",
+    pressStyle: (PRESS_STYLES as readonly string[]).includes(String(s.pressStyle)) ? (s.pressStyle as PressStyle) : "vk",
+    hideWhileAiming: s.hideWhileAiming === undefined ? true : Boolean(s.hideWhileAiming),
     playerName: String(s.playerName ?? "").slice(0, 24),
     squadCode: String(s.squadCode ?? "").slice(0, 32),
     openrouterKey: String(s.openrouterKey ?? "").trim(),

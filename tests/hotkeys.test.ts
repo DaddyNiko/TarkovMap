@@ -37,3 +37,18 @@ describe("mouse-button hotkeys", () => {
     expect(HELPER).toContain('"hotkey " + $name');
   });
 });
+
+import { PRESS_STYLES } from "../src/key-sender.js";
+describe("press styles and aim hide", () => {
+  it("settings keep a known style and default to hiding while aiming", () => {
+    expect(sanitize({ ...DEFAULT_SETTINGS, pressStyle: "scanonly" } as never).pressStyle).toBe("scanonly");
+    expect(sanitize({ ...DEFAULT_SETTINGS, pressStyle: "nope" } as never).pressStyle).toBe("vk");
+    expect(sanitize({ ...DEFAULT_SETTINGS, hideWhileAiming: undefined } as never).hideWhileAiming).toBe(true);
+    expect(PRESS_STYLES).toContain("scan54");
+  });
+  it("the helper takes the style in cfg and reports aim edges", () => {
+    expect(HELPER).toContain('$style = $p[5]');
+    expect(HELPER).toContain('"aim " +');
+    expect(HELPER).toMatch(/Press\(\[uint16\]\$shotVk, \$style\)/);
+  });
+});

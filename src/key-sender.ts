@@ -22,6 +22,10 @@ import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 
 export type SendMode = "auto" | "manual" | "hold" | "timer";
+/** How the key is synthesised. Games differ in which form of an injected key they accept, so the app
+ *  rotates through these until a screenshot actually appears (see main.ts pressStyle). */
+export const PRESS_STYLES = ["vk", "scanonly", "vkonly", "scan54", "legacy"] as const;
+export type PressStyle = (typeof PRESS_STYLES)[number];
 
 export interface KeySenderConfig {
   mode: SendMode;
@@ -30,6 +34,7 @@ export interface KeySenderConfig {
   /** Key held to stream in `hold` mode, e.g. "CapsLock". */
   holdKey: string;
   intervalMs: number;
+  style?: PressStyle;
 }
 
 export const DEFAULT_SENDER: KeySenderConfig = { mode: "auto", screenshotKey: "F11", holdKey: "CapsLock", intervalMs: 2000 };
@@ -69,7 +74,7 @@ export function powershellExe(): string {
  *   hk <name>:<vk>,<name>:<vk>,…   (mouse-button hotkeys to watch; empty = none)
  *   press            (one immediate press if EFT is foreground)
  *   quit
- * Output lines: `hb` (heartbeat every 3 s), `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `hotkey <name>` (a watched mouse button went down), `fg <process>` (foreground app
+ * Output lines: `hb` (heartbeat every 3 s), `aim 1|0` (left or right mouse button held while the game is in front), `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `hotkey <name>` (a watched mouse button went down), `fg <process>` (foreground app
  * changed; polled twice a second), `game 1|0` (Tarkov/Arena process exists; polled every 5 s), `err <text>`.
  */
 export const HELPER_SCRIPT = String.raw`
@@ -87,14 +92,20 @@ public static class TkInput {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern short GetAsyncKeyState(int vk);
   [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
-  public static bool Press(ushort vk) {
+  [DllImport("user32.dll")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+  static uint One(ushort vk, ushort scan, uint flags) { INPUT[] a = new INPUT[1]; a[0].type = 1; a[0].u.ki.wVk = vk; a[0].u.ki.wScan = scan; a[0].u.ki.dwFlags = flags; return SendInput(1, a, Marshal.SizeOf(typeof(INPUT))); }
+  /** One press, held ~70 ms like a finger. style: vk (vk+scan, extended flag where due) | scanonly | vkonly | scan54 (SysRq form of Print Screen) | legacy (keybd_event). */
+  public static bool Press(ushort vk, string style) {
     ushort scan = (ushort)MapVirtualKey(vk, 0);
     bool ext = vk == 0x2C || vk == 0x2D || vk == 0x2E || vk == 0x24 || vk == 0x23 || vk == 0x21 || vk == 0x22 || vk == 0x6F;
-    uint flags = ext ? 1u : 0u;
-    INPUT[] a = new INPUT[2];
-    a[0].type = 1; a[0].u.ki.wVk = vk; a[0].u.ki.wScan = scan; a[0].u.ki.dwFlags = flags;
-    a[1].type = 1; a[1].u.ki.wVk = vk; a[1].u.ki.wScan = scan; a[1].u.ki.dwFlags = flags | 2;
-    return SendInput(2, a, Marshal.SizeOf(typeof(INPUT))) == 2;
+    uint extf = ext ? 1u : 0u;
+    uint r = 0;
+    if (style == "legacy") { keybd_event((byte)vk, (byte)scan, extf, UIntPtr.Zero); System.Threading.Thread.Sleep(70); keybd_event((byte)vk, (byte)scan, extf | 2, UIntPtr.Zero); return true; }
+    if (style == "scanonly") { r = One(0, scan, 8 | extf); System.Threading.Thread.Sleep(70); r += One(0, scan, 8 | extf | 2); }
+    else if (style == "vkonly") { r = One(vk, 0, 0); System.Threading.Thread.Sleep(70); r += One(vk, 0, 2); }
+    else if (style == "scan54") { ushort sc = vk == 0x2C ? (ushort)0x54 : scan; r = One(vk, sc, 0); System.Threading.Thread.Sleep(70); r += One(vk, sc, 2); }
+    else { r = One(vk, scan, extf); System.Threading.Thread.Sleep(70); r += One(vk, scan, extf | 2); }
+    return r == 2;
   }
   public static bool PressMouse(int button) {
     uint down = button == 4 ? 0x0080u : 0x0002u; uint up = button == 4 ? 0x0100u : 0x0004u; uint data = button == 4 ? 1u : 0u;
@@ -112,7 +123,7 @@ public static class TkInput {
   }
 }
 "@
-$mode = "manual"; $shotVk = 0x7A; $holdVk = 0x14; $interval = 2000; $inRaid = $false
+$mode = "manual"; $shotVk = 0x7A; $holdVk = 0x14; $interval = 2000; $inRaid = $false; $style = "vk"; $aim = $false
 $holding = $false; $lastSent = [DateTime]::MinValue; $fgLast = ""; $gLast = $null; $tick = 0
 $hk = @{}; $hkDown = @{}
 $gameNames = @("EscapeFromTarkov", "EscapeFromTarkovArena", "EscapeFromTarkov_BE", "EscapeFromTarkovArena_BE")
@@ -124,7 +135,7 @@ function Send-Shot {
   if ($shotVk -eq 4) { $ok = [TkInput]::PressMouse(3) }
   elseif ($shotVk -eq 5) { $ok = [TkInput]::PressMouse(4) }
   elseif ($shotVk -eq 6) { $ok = [TkInput]::PressMouse(5) }
-  else { $ok = [TkInput]::Press([uint16]$shotVk) }
+  else { $ok = [TkInput]::Press([uint16]$shotVk, $style) }
   if ($ok) { [Console]::Out.WriteLine("sent") } else { [Console]::Out.WriteLine("err SendInput failed") }
   $script:lastSent = [DateTime]::UtcNow
 }
@@ -144,7 +155,7 @@ while ($true) {
     if ($line -eq [string][char]4) { exit 0 }
     $p = $line.Trim().Split(" ")
     switch ($p[0]) {
-      "cfg" { $mode = $p[1]; $shotVk = [int]$p[2]; $holdVk = [int]$p[3]; $interval = [int]$p[4]; [Console]::Out.WriteLine("cfg-ok " + $mode) }
+      "cfg" { $mode = $p[1]; $shotVk = [int]$p[2]; $holdVk = [int]$p[3]; $interval = [int]$p[4]; if ($p.Length -gt 5) { $style = $p[5] }; [Console]::Out.WriteLine("cfg-ok " + $mode + " " + $style) }
       "raid" { $inRaid = ($p[1] -eq "1") }
       "hk" { $hk = @{}; $hkDown = @{}; if ($p.Length -gt 1 -and $p[1]) { foreach ($pair in $p[1].Split(",")) { $kv = $pair.Split(":"); if ($kv.Length -eq 2) { $hk[$kv[0]] = [int]$kv[1] } } }; [Console]::Out.WriteLine("hk-ok " + $hk.Count) }
       "press" { Send-Shot }
@@ -153,6 +164,8 @@ while ($true) {
   }
   $tick++
   if (($tick % 30) -eq 0) { [Console]::Out.WriteLine("hb") }
+  $aimNow = (Game-InFront) -and ([TkInput]::Held(1) -or [TkInput]::Held(2))
+  if ($aimNow -ne $aim) { $aim = $aimNow; [Console]::Out.WriteLine("aim " + $(if ($aim) { "1" } else { "0" })) }
   if (($tick % 5) -eq 0) { $fgNow = [TkInput]::ForegroundProcess(); if ($fgNow -ne $fgLast) { $fgLast = $fgNow; [Console]::Out.WriteLine("fg " + $fgNow) } }
   if (($tick % 50) -eq 1) { $gNow = [bool](Get-Process -Name EscapeFromTarkov, EscapeFromTarkovArena -ErrorAction SilentlyContinue); if ($gNow -ne $gLast) { $gLast = $gNow; [Console]::Out.WriteLine("game " + $(if ($gNow) { "1" } else { "0" })) } }
   foreach ($name in @($hk.Keys)) {
@@ -233,7 +246,7 @@ export class KeySender extends EventEmitter {
   private pushConfig(): void {
     const shot = vkFor(this.cfg.screenshotKey) ?? VK.F11;
     const hold = vkFor(this.cfg.holdKey) ?? VK.CapsLock;
-    this.write(`cfg ${this.cfg.mode} ${shot} ${hold} ${Math.max(500, this.cfg.intervalMs | 0)}`);
+    this.write(`cfg ${this.cfg.mode} ${shot} ${hold} ${Math.max(500, this.cfg.intervalMs | 0)} ${this.cfg.style ?? "vk"}`);
   }
 
   /** Mouse-button hotkeys to watch: action name → virtual-key code. Replaces the previous set. */
