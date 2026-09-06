@@ -10,7 +10,7 @@ import {
   type MapDef,
 } from "../src/map-data.js";
 import { parseScreenshotName } from "../src/screenshot-feed.js";
-import { GameWatcher, INITIAL_STATE, parseLogLine, reduceState } from "../src/game-watcher.js";
+import { GameWatcher, INITIAL_STATE, parseLogLine, reduceState, unityKeyToName } from "../src/game-watcher.js";
 
 const raw = JSON.parse(readFileSync(resolve(__dirname, "..", "data", "maps.json"), "utf8"));
 const maps = interactiveMaps(raw);
@@ -131,6 +131,19 @@ describe("game log", () => {
     expect(parseLogLine("2026-09-06 09:25:15.622|1.1.0.1.46911|Info|application|[Transit] Flag:None, RaidId:6a9d69baf8b7150ab9065350, Count:0, Locations:bigmap -> ")).toEqual({ type: "location", location: "bigmap", mapKey: "customs", online: true, raidId: "6a9d69baf8b7150ab9065350" });
     expect(parseLogLine("2026-09-06 09:25:15.622|1.1.0.1.46911|Info|application|[Transit] Flag:None, RaidId:6a9d69baf8b7150ab9065350, Count:1, Locations:bigmap -> Woods")).toMatchObject({ type: "location", location: "Woods", mapKey: "woods" });
     expect(parseLogLine("2026-09-06 09:24:39.544|1.1.0.1.46911|Info|application|scene preset path:maps/menu_preset.bundle rcid:hideout.scenespreset.asset")).toBeNull();
+  });
+  it("reads the Screenshot bind from the game's logged input config", () => {
+    const line = '2026-09-06 09:21:55.000|1.1.0.1.46911|Info|application|{"InvertedXAxis":false,"keyBindings":[{"keyName":"Recorder","variants":[{"keyCode":["M"]},{"keyCode":[]}],"pressType":"Release"},{"keyName":"MakeScreenshot","variants":[{"keyCode":["SysReq"]},{"keyCode":[]}],"pressType":"Press"}]}';
+    expect(parseLogLine(line)).toEqual({ type: "binds", screenshotKey: "PrintScreen", raw: "SysReq" });
+    expect(parseLogLine(line.replace('["SysReq"]', '["F11"]'))).toEqual({ type: "binds", screenshotKey: "F11", raw: "F11" });
+    // The real dump has no stamp or "|application|" prefix at all.
+    expect(parseLogLine(line.slice(line.indexOf("{")))).toEqual({ type: "binds", screenshotKey: "PrintScreen", raw: "SysReq" });
+    expect(parseLogLine(line.replace('["SysReq"]', '["LeftControl","P"]'))).toEqual({ type: "binds", screenshotKey: null, raw: "LeftControl+P" });
+    expect(reduceState(INITIAL_STATE, { type: "binds", screenshotKey: "F11", raw: "F11" })).toMatchObject({ screenshotBind: "F11", raid: "menu" });
+    expect(unityKeyToName("Alpha7")).toBe("7");
+    expect(unityKeyToName("Keypad5")).toBe("Numpad5");
+    expect(unityKeyToName("Mouse2")).toBe("Mouse3");
+    expect(unityKeyToName("LeftShift")).toBeNull();
   });
   it("reads the lifecycle lines", () => {
     expect(parseLogLine("2026-09-04 02:36:57.984|1.1.0.1.46911|Debug|application|Matching with group id: ")).toEqual({ type: "matching" });

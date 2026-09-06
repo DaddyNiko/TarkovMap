@@ -468,6 +468,19 @@
   window.api.onMap((m) => { mapPayload = m; if (snap) { paintMapPage(); paintLayers(); } });
   window.api.onQuests((q) => { questPayload = q; questsKey = ""; questsMaybeRepaint(); });
   window.api.onLog((l) => { if (!snap) return; snap.log.push(l); if (snap.log.length > 60) snap.log.shift(); $("log").textContent = snap.log.join("\n"); $("log").scrollTop = $("log").scrollHeight; });
-  window.api.onTick((t) => { if (snap) { snap.screenshots = t.screenshots; $("rShots").textContent = `${t.screenshots.files} files · ${(t.screenshots.bytes / 1048576).toFixed(1)} MB`; if (snap.fix) $("rFeedSub").textContent = `${Math.round((t.now - snap.fix.at) / 1000)} s ago · mode: ${snap.settings.mode}`; } });
+  function paintHealth(rows) {
+    if (!rows) return;
+    const el = $("health");
+    el.innerHTML = rows.map((r) => `<div class="hrow ${r.ok === true ? "ok" : r.ok === false ? "bad" : "na"}"><span class="ic">${r.ok === true ? "✓" : r.ok === false ? "✗" : "·"}</span><span class="lb">${TM.esc(r.label)}</span><span class="dt">${TM.esc(r.detail)}</span></div>`).join("");
+    const bad = rows.filter((r) => r.ok === false);
+    $("healthSum").textContent = bad.length ? `${bad.length} problem${bad.length > 1 ? "s" : ""} — first: ${bad[0].label}` : rows.every((r) => r.ok === true) ? "every link answers" : "waiting on the game";
+  }
+  $("bHealthTest").onclick = async () => {
+    $("healthOut").textContent = "pressing once and watching the chain for 6 s…";
+    const r = await window.api.healthTest();
+    paintHealth(r.rows);
+    $("healthOut").textContent = !r.sent ? "the press was not sent — Tarkov must be the active window (alt-tab to it and press F-key test from there), or the helper is down" : !r.file ? "pressed, but no screenshot file appeared — the game did not react to that key: check the Screenshot key row above" : !r.fix ? "a file appeared but its name carried no position — the game's screenshot naming changed" : "pressed → file → position: the whole chain works";
+  };
+  window.api.onTick((t) => { paintHealth(t.health); if (snap) { snap.screenshots = t.screenshots; $("rShots").textContent = `${t.screenshots.files} files · ${(t.screenshots.bytes / 1048576).toFixed(1)} MB`; if (snap.fix) $("rFeedSub").textContent = `${Math.round((t.now - snap.fix.at) / 1000)} s ago · mode: ${snap.settings.mode}`; } });
   window.api.getState().then((s) => { snap = s; mapPayload = s.map; paintAll(); const page = location.hash.slice(1); if (page && $("s-" + page)) show(page); else if (!s.settings.setupDone) show("setup"); });
 })();

@@ -38,6 +38,8 @@ export type LogEvent =
   | { type: "aborted" }
   /** The profile is re-prepared when the player is back in the menu after a raid. */
   | { type: "profile" }
+  /** The game logs its whole input config at start; this is its MakeScreenshot bind in the app's key names. */
+  | { type: "binds"; screenshotKey: string | null; raw: string }
   | { type: "side"; side: "pmc" | "scav" }
   | { type: "quest"; questId: string; status: QuestStatus; at: number };
 
@@ -46,9 +48,30 @@ const RAID_ID_RE = /shortId: (?<id>[A-Z0-9]{4,8})/;
 const NOTIFICATION_RE = /Got notification \| (?<kind>[A-Za-z]+)/;
 const STAMP_RE = /^(?<date>\d{4}-\d{2}-\d{2}) (?<time>\d{2}:\d{2}:\d{2})/;
 const SCENE_RE = /rcid:(?<loc>[A-Za-z0-9_]+)\.scenespreset/;
+const SHOT_BIND_RE = /"keyName":"MakeScreenshot","variants":\[\{"keyCode":\[(?<codes>[^\]]*)\]/;
+
+/** Unity KeyCode name → the app's key name (the Setup page list / key-sender VK table), or null when unsendable. */
+export function unityKeyToName(code: string): string | null {
+  const c = code.trim();
+  if (/^F([1-9]|1[0-2])$/.test(c)) return c;
+  if (c === "SysReq" || c === "Print") return "PrintScreen";
+  if (/^Alpha[0-9]$/.test(c)) return c.slice(5);
+  if (/^Keypad[0-9]$/.test(c)) return "Numpad" + c.slice(6);
+  const kp: Record<string, string> = { KeypadMultiply: "NumpadMultiply", KeypadPlus: "NumpadAdd", KeypadMinus: "NumpadSubtract", KeypadPeriod: "NumpadDecimal", KeypadDivide: "NumpadDivide", Return: "Enter", Mouse2: "Mouse3", Mouse3: "Mouse4", Mouse4: "Mouse5" };
+  if (kp[c]) return kp[c];
+  if (["Insert", "Home", "PageUp", "PageDown", "End", "Delete", "CapsLock", "Tab", "Space", "Backspace", "ScrollLock", "Pause"].includes(c)) return c;
+  if (/^[A-Z]$/.test(c)) return c;
+  return null;
+}
 const TRANSIT_RE = /RaidId:(?<id>[0-9a-f]{24}).*Locations:(?<locs>[^|]*)$/;
 
 export function parseLogLine(line: string): LogEvent | null {
+  // The input config is dumped as a bare JSON line: no stamp, no "|application|" prefix.
+  if (line.includes('"keyName":"MakeScreenshot"')) {
+    const codes = (SHOT_BIND_RE.exec(line)?.groups?.codes ?? "").split(",").map((x) => x.trim().replace(/^"|"$/g, "")).filter(Boolean);
+    const raw = codes.join("+");
+    return { type: "binds", screenshotKey: codes.length === 1 ? unityKeyToName(codes[0]) : null, raw };
+  }
   let cut = line.indexOf("|application|");
   if (cut >= 0) cut += "|application|".length;
   else return null;
@@ -123,6 +146,9 @@ export function parseNotification(kind: string, json: unknown, at: number): LogE
 }
 
 export interface GameState {
+  /** Tarkov's MakeScreenshot bind as an app key name; null until the game logged it or when it is a combo. */
+  screenshotBind?: string | null;
+  screenshotBindRaw?: string | null;
   mapKey: string | null;
   location: string | null;
   raid: RaidState;
@@ -161,6 +187,8 @@ export function reduceState(prev: GameState, ev: LogEvent, at = Date.now()): Gam
       return { ...prev, side: ev.side };
     case "quest":
       return prev;
+    case "binds":
+      return { ...prev, screenshotBind: ev.screenshotKey, screenshotBindRaw: ev.raw };
   }
 }
 
@@ -363,8 +391,13 @@ export class GameWatcher extends EventEmitter {
     this.ingestLines(lines, t.parser);
   }
 
+  /** Epoch ms of the newest log line ingested (the log's own stamp) — the health card's "log alive". */
+  lastLogAt = 0;
+
   private ingestLines(lines: string[], parser: LogParser): void {
     for (const line of lines) {
+      const at = lineTime(line, 0);
+      if (at > this.lastLogAt) this.lastLogAt = at;
       for (const ev of parser.feed(line)) {
         const next = reduceState(this.state, ev, lineTime(line));
         const changed = JSON.stringify(next) !== JSON.stringify(this.state);

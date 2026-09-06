@@ -25,6 +25,7 @@ import { GameWatcher, INITIAL_STATE, logsDirFor, scanQuestHistory, type GameStat
 import { ScreenshotFeed, type PlayerFix } from "./screenshot-feed.js";
 import { KeySender, vkFor } from "./key-sender.js";
 import { progression, whyContext, whyItMatters } from "./progression.js";
+import { execFile } from "node:child_process";
 import { DEFAULT_SETTINGS, arenaScreenshotsFolder, defaultScreenshotsFolder, isMouseAccel, loadSettings, sanitize, saveSettings, type Settings } from "./settings.js";
 import { detectInstall, myDocuments } from "./install.js";
 import { CACHE_TTL_MS, featuresFor, fetchFeatures, readCache, writeCache, type FeatureCache } from "./map-features.js";
@@ -85,6 +86,69 @@ const logLines: string[] = [];
 let quitting = false;
 let overlayInteractive = false;
 let overlayHidden = false;
+/** Timestamps every link of the chain leaves behind, for the health card and health.json. */
+const health = { helperAt: 0, sentAt: 0, sent: [] as number[], fileAt: 0, unparsedAt: 0, lastFile: "", fixAt: 0, skipAt: 0, skipApp: "" };
+/** Windows' "Print screen opens Snipping Tool" switch: true/false when the registry says, null when unset (Windows 11 default = on). */
+let printScreenSnipping: boolean | null = null;
+function readPrintScreenSnipping(): void {
+  execFile("reg", ["query", "HKCU\\Control Panel\\Keyboard", "/v", "PrintScreenKeyForSnippingEnabled"], { windowsHide: true }, (err, out) => {
+    if (err) { printScreenSnipping = null; return; }
+    const m = /0x([0-9a-f]+)/i.exec(out);
+    printScreenSnipping = m ? parseInt(m[1], 16) !== 0 : null;
+  });
+}
+/** Print Screen never reaches the game while Windows hands it to Snipping Tool (unset = Windows 11 default, on). */
+const printScreenBlocked = () => printScreenSnipping !== false;
+
+export interface HealthRow { id: string; ok: boolean | null; label: string; detail: string }
+function healthRows(): HealthRow[] {
+  const now = Date.now();
+  const age = (t: number) => (t ? Math.round((now - t) / 1000) : -1);
+  const ago = (t: number) => (t ? `${age(t)} s ago` : "never");
+  const rows: HealthRow[] = [];
+  const helperOk = health.helperAt > 0 && now - health.helperAt < 8000;
+  rows.push({ id: "helper", ok: helperOk, label: "Key helper", detail: helperOk ? "alive, polling" : health.helperAt ? `silent for ${age(health.helperAt)} s` : "not started" });
+  rows.push({ id: "game", ok: gameRunning === true, label: "Tarkov running", detail: gameRunning === true ? "EscapeFromTarkov process found" : gameRunning === false ? "not running" : "checking…" });
+  const front = GAME_PROCESSES.has(foregroundApp);
+  rows.push({ id: "front", ok: gameRunning ? front : null, label: "Tarkov in front", detail: front ? "yes" : foregroundApp ? `no — ${foregroundApp} is the active window` : "unknown" });
+  const bind = gameState.screenshotBind, raw = gameState.screenshotBindRaw;
+  let bindOk: boolean | null = null, bindDetail = "waiting for the game to log its keybinds (it does at start)";
+  if (raw != null) {
+    if (!bind) { bindOk = false; bindDetail = `Tarkov's Make screenshot is "${raw}" — a combo the app cannot press. Rebind it to a single key like F11 in Tarkov ▸ Settings ▸ Controls.`; }
+    else if (bind === "PrintScreen" && printScreenBlocked()) { bindOk = false; bindDetail = `Tarkov's Make screenshot is Print Screen, and Windows hands Print Screen to Snipping Tool before the game sees it. Rebind Make screenshot to F11 in Tarkov ▸ Settings ▸ Controls (20 seconds, once), or switch off "Use the Print screen key to open screen capture" in Windows Settings ▸ Accessibility ▸ Keyboard.`; }
+    else if (bind !== settings.screenshotKey) { bindOk = false; bindDetail = `Tarkov has ${bind}, the app presses ${settings.screenshotKey}`; }
+    else { bindOk = true; bindDetail = `${bind} — read from the game's own log`; }
+  }
+  rows.push({ id: "bind", ok: bindOk, label: "Screenshot key", detail: bindDetail });
+  const recent = health.sent.filter((t) => now - t < 30000).length;
+  const pressOk = settings.mode === "manual" ? null : recent > 0 ? true : front ? false : null;
+  rows.push({ id: "press", ok: pressOk, label: "Presses sent", detail: settings.mode === "manual" ? "manual mode — you press the key yourself" : recent ? `${recent} in the last 30 s, last ${ago(health.sentAt)}` : front ? `none in 30 s (mode ${settings.mode})${health.skipAt && now - health.skipAt < 30000 ? ` — skipped, ${health.skipApp} was in front` : ""}` : "waiting for Tarkov in front" });
+  const fileOk = health.fileAt ? now - health.fileAt < 60000 : null;
+  rows.push({ id: "file", ok: recent ? Boolean(fileOk) : fileOk, label: "Screenshot files", detail: health.fileAt ? `last ${ago(health.fileAt)}${health.unparsedAt > health.fixAt ? " — but the name carried no position (not the game's format?)" : ""}` : recent ? "none appeared after the presses — the game is not taking screenshots on that key" : "none yet" });
+  const fixOk = health.fixAt ? now - health.fixAt < 60000 : null;
+  rows.push({ id: "fix", ok: health.fileAt ? fixOk : null, label: "Position", detail: lastFix ? `${ago(health.fixAt)} · x ${lastFix.x.toFixed(0)} z ${lastFix.z.toFixed(0)}` : "no fix yet" });
+  const logAge = game?.lastLogAt ? age(game.lastLogAt) : -1;
+  const mapOk = gameState.mapKey ? true : game ? (gameRunning ? false : null) : false;
+  rows.push({ id: "map", ok: mapOk, label: "Map from the log", detail: game ? `${gameState.mapKey ?? "unknown"} · ${gameState.raid}${logAge >= 0 ? ` · log line ${logAge} s old` : " · no log lines read"}` : "log folder not found — set the install path in Setup" });
+  const ovVis = Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible());
+  rows.push({ id: "minimap", ok: overlayHidden ? false : ovVis ? true : front ? false : null, label: "Minimap window", detail: overlayHidden ? "hidden by you (Show minimap)" : ovVis ? "on screen" : settings.overlayOnlyInGame ? "waits for Tarkov in front" : "not shown" });
+  const bigVis = Boolean(bigmap && !bigmap.isDestroyed() && bigmap.isVisible());
+  rows.push({ id: "bigmap", ok: bigVis ? true : settings.bigMapEnabled ? (gameRunning ? false : null) : null, label: "Full map window", detail: bigVis ? "open" : bigmapDismissed ? "closed by you (Open full map)" : settings.bigMapEnabled ? "waits for Tarkov" : "off in Setup" });
+  return rows;
+}
+function writeHealth(): void {
+  try { writeFileSync(join(USER(), "health.json"), JSON.stringify({ at: Date.now(), version: app.getVersion(), rows: healthRows(), state: { mode: settings.mode, screenshotKey: settings.screenshotKey, bind: gameState.screenshotBind ?? null, bindRaw: gameState.screenshotBindRaw ?? null, printScreenSnipping, foregroundApp, gameRunning, raid: gameState.raid, mapKey: gameState.mapKey, fix: lastFix ? { x: lastFix.x, y: lastFix.y, z: lastFix.z, at: lastFix.at } : null } }, null, 1)); } catch { /* disk */ }
+}
+/** Press once and watch the chain for up to 6 s: which link answered. */
+async function healthTest(): Promise<{ sent: boolean; file: boolean; fix: boolean; rows: HealthRow[] }> {
+  const t0 = Date.now();
+  sender.start();
+  sender.pressOnce();
+  const until = t0 + 6000;
+  while (Date.now() < until && !(health.fixAt > t0)) await new Promise((r) => setTimeout(r, 200));
+  return { sent: health.sentAt >= t0, file: health.fileAt >= t0, fix: health.fixAt >= t0, rows: healthRows() };
+}
+
 /** Foreground process name from the key helper ("fg <name>"); "" until the first report. */
 let foregroundApp = "";
 /** Tarkov / Arena process exists (key helper "game 1|0"); null until the first report. */
@@ -323,6 +387,7 @@ function registerHotkeys(): void {
 }
 
 // ── Engine wiring ──────────────────────────────────────────────────────────
+let lastBindWarn = "";
 function armGame(): void {
   game?.stop();
   game = null;
@@ -335,6 +400,14 @@ function armGame(): void {
     const raidChanged = s.raid !== gameState.raid;
     gameState = s;
     sender.setInRaid(s.raid === "in-raid");
+    // Follow the game's own Screenshot bind so nothing has to be set by hand — unless Windows would eat it.
+    if (s.screenshotBind && s.screenshotBind !== settings.screenshotKey && !(s.screenshotBind === "PrintScreen" && printScreenBlocked())) {
+      log(`Tarkov's Screenshot key is ${s.screenshotBind} — following it`);
+      patchSettings({ screenshotKey: s.screenshotBind });
+    } else if (s.screenshotBindRaw != null && (!s.screenshotBind || (s.screenshotBind === "PrintScreen" && printScreenBlocked())) && s.screenshotBindRaw !== lastBindWarn) {
+      lastBindWarn = s.screenshotBindRaw;
+      log(`Tarkov's Make screenshot is "${s.screenshotBindRaw}" — the app cannot use it; see the health card on the Raid page`);
+    }
     const after = currentMap()?.key ?? null;
     if (after !== before) onMapChanged();
     if (s.mapKey && settings.lastMapKey !== s.mapKey) { settings = { ...settings, lastMapKey: s.mapKey }; saveSettings(SETTINGS_FILE(), settings); }
@@ -400,8 +473,11 @@ function armFeed(): void {
 }
 
 function wireFeed(f: ScreenshotFeed): ScreenshotFeed {
+  f.on("file", () => { health.fileAt = Date.now(); });
+  f.on("unparsed", (name: string) => { health.unparsedAt = Date.now(); health.lastFile = name; });
   f.on("fix", (fix: PlayerFix) => {
     lastFix = fix;
+    health.fixAt = Date.now();
     trail.push({ x: fix.x, z: fix.z, at: fix.at });
     while (trail.length > 400) trail.shift();
     const map = currentMap();
@@ -764,6 +840,8 @@ function registerIpc(): void {
   ipcMain.handle("overlay:interactive", (_e, v: boolean) => { overlayInteractive = v; applyClickThrough(); });
   ipcMain.handle("overlay:toggleHidden", () => toggleOverlayHidden());
   ipcMain.handle("overlay:setHidden", (_e, hidden: boolean) => setOverlayHidden(Boolean(hidden)));
+  ipcMain.handle("health:test", () => healthTest());
+  ipcMain.handle("health:get", () => healthRows());
   ipcMain.handle("app:quit", () => { quitting = true; app.quit(); });
   ipcMain.handle("detect:install", () => detectInstall());
   ipcMain.handle("tiles:fetchAll", () => void cacheAllTilesInBackground());
@@ -918,6 +996,9 @@ if (!lock) {
     registerHotkeys();
     armDebugCapture();
     sender.on("line", (l: string) => {
+      health.helperAt = Date.now();
+      if (l === "sent") { health.sentAt = Date.now(); health.sent.push(health.sentAt); if (health.sent.length > 200) health.sent.splice(0, 100); return; }
+      if (l.startsWith("skip-foreground")) { health.skipAt = Date.now(); health.skipApp = l.slice(15).trim(); }
       if (l.startsWith("fg ")) { foregroundApp = l.slice(3).trim(); applyOverlayVisibility(); if (GAME_PROCESSES.has(foregroundApp)) retopOverlay(); return; }
       if (l.startsWith("game ")) {
         const now = l.slice(5).trim() === "1";
@@ -936,7 +1017,11 @@ if (!lock) {
       squad?.prune();
       if (myPings.some((p) => p.at + p.ttlMs <= Date.now())) { myPings = myPings.filter((p) => p.at + p.ttlMs > Date.now()); ensureTagsWindow(); pushSnapshot(); }
     }, 5000);
-    setInterval(() => broadcast("tick", { now: Date.now(), screenshots: feedStats() }), 1000);
+    setInterval(() => broadcast("tick", { now: Date.now(), screenshots: feedStats(), health: healthRows() }), 1000);
+    readPrintScreenSnipping();
+    setInterval(readPrintScreenSnipping, 60000);
+    writeHealth();
+    setInterval(writeHealth, 5000);
   });
   app.on("window-all-closed", () => { /* stay in the tray */ });
   app.on("will-quit", () => globalShortcut.unregisterAll());

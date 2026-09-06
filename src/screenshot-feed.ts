@@ -151,8 +151,9 @@ export class ScreenshotFeed extends EventEmitter {
     if (this.seen.has(name)) return;
     if (!/\.png$/i.test(name)) return;
     this.seen.add(name);
+    this.emit("file", name);
     const fix = parseScreenshotName(name);
-    if (!fix) return;
+    if (!fix) { this.emit("unparsed", name); return; }
     this.emit("fix", fix);
     if (this.opts.deleteAfterRead) this.deleteWhenStable(join(this.opts.folder, name), 0);
   }

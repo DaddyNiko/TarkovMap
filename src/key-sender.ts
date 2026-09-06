@@ -69,7 +69,7 @@ export function powershellExe(): string {
  *   hk <name>:<vk>,<name>:<vk>,…   (mouse-button hotkeys to watch; empty = none)
  *   press            (one immediate press if EFT is foreground)
  *   quit
- * Output lines: `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `hotkey <name>` (a watched mouse button went down), `fg <process>` (foreground app
+ * Output lines: `hb` (heartbeat every 3 s), `sent`, `skip-foreground`, `hold-start`, `hold-stop`, `hotkey <name>` (a watched mouse button went down), `fg <process>` (foreground app
  * changed; polled twice a second), `game 1|0` (Tarkov/Arena process exists; polled every 5 s), `err <text>`.
  */
 export const HELPER_SCRIPT = String.raw`
@@ -152,6 +152,7 @@ while ($true) {
     }
   }
   $tick++
+  if (($tick % 30) -eq 0) { [Console]::Out.WriteLine("hb") }
   if (($tick % 5) -eq 0) { $fgNow = [TkInput]::ForegroundProcess(); if ($fgNow -ne $fgLast) { $fgLast = $fgNow; [Console]::Out.WriteLine("fg " + $fgNow) } }
   if (($tick % 50) -eq 1) { $gNow = [bool](Get-Process -Name EscapeFromTarkov, EscapeFromTarkovArena -ErrorAction SilentlyContinue); if ($gNow -ne $gLast) { $gLast = $gNow; [Console]::Out.WriteLine("game " + $(if ($gNow) { "1" } else { "0" })) } }
   foreach ($name in @($hk.Keys)) {
