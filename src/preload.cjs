@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("api", {
   hide: () => ipcRenderer.invoke("window:hide"),
   setOverlayInteractive: (v) => ipcRenderer.invoke("overlay:interactive", v),
   toggleOverlayHidden: () => ipcRenderer.invoke("overlay:toggleHidden"),
+  setOverlayHidden: (hidden) => ipcRenderer.invoke("overlay:setHidden", hidden),
   quit: () => ipcRenderer.invoke("app:quit"),
   detectInstall: () => ipcRenderer.invoke("detect:install"),
   fetchAllTiles: () => ipcRenderer.invoke("tiles:fetchAll"),

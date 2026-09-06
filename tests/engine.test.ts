@@ -126,6 +126,12 @@ describe("game log", () => {
   it("reads the map from the game-create line", () => {
     expect(parseLogLine(CREATE)).toEqual({ type: "location", location: "Sandbox", mapKey: "ground-zero", online: true, raidId: "WZD2M8" });
   });
+  it("reads the map from the 1.1.0.1 scene-preset and transit lines", () => {
+    expect(parseLogLine("2026-09-06 09:24:39.544|1.1.0.1.46911|Info|application|scene preset path:maps/customs_preset.bundle rcid:bigmap.scenespreset.asset")).toEqual({ type: "location", location: "bigmap", mapKey: "customs", online: true, raidId: undefined });
+    expect(parseLogLine("2026-09-06 09:25:15.622|1.1.0.1.46911|Info|application|[Transit] Flag:None, RaidId:6a9d69baf8b7150ab9065350, Count:0, Locations:bigmap -> ")).toEqual({ type: "location", location: "bigmap", mapKey: "customs", online: true, raidId: "6a9d69baf8b7150ab9065350" });
+    expect(parseLogLine("2026-09-06 09:25:15.622|1.1.0.1.46911|Info|application|[Transit] Flag:None, RaidId:6a9d69baf8b7150ab9065350, Count:1, Locations:bigmap -> Woods")).toMatchObject({ type: "location", location: "Woods", mapKey: "woods" });
+    expect(parseLogLine("2026-09-06 09:24:39.544|1.1.0.1.46911|Info|application|scene preset path:maps/menu_preset.bundle rcid:hideout.scenespreset.asset")).toBeNull();
+  });
   it("reads the lifecycle lines", () => {
     expect(parseLogLine("2026-09-04 02:36:57.984|1.1.0.1.46911|Debug|application|Matching with group id: ")).toEqual({ type: "matching" });
     expect(parseLogLine("2026-09-04 02:37:18.082|1.1.0.1.46911|Info|application|LocationLoaded:15.4 real:20.09 diff:4.69")).toEqual({ type: "loaded" });

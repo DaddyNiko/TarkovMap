@@ -65,6 +65,14 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 #pairs div span { min-width: 90px; }
 #pairs div b { color: var(--amber); }
 #pairs div i { font-style: normal; color: var(--dim); flex: 1; }
+.eyehead { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.eyehead .sp { flex: 1; }
+.eyehead button { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; padding: 4px 9px; }
+.chipwrap { display: inline-flex; align-items: stretch; margin: 0 6px 6px 0; }
+.chipwrap .chip { margin: 0; border-radius: 9px 0 0 9px; }
+.eye { display: inline-flex; align-items: center; padding: 0 7px; margin: 0; border-radius: 0 9px 9px 0; border: 1px solid transparent; background: rgba(255,255,255,.06); color: var(--dim); line-height: 0; cursor: pointer; }
+.eye.on { color: var(--green); }
+.eye.off { color: var(--red); background: rgba(255,90,90,.08); }
 .qtabs { display: flex; gap: 6px; margin-bottom: 14px; }
 .qtabs a { padding: 6px 16px; border-radius: 999px; border: 1px solid var(--line); color: var(--dim); font-size: 13px; font-weight: 600; cursor: pointer; }
 .qtabs a.on { background: rgba(120,230,140,.14); border-color: rgba(120,230,140,.5); color: var(--green); }
@@ -153,6 +161,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       </div>
       <div class="card">
         <h3>Overlay</h3>
+        <div class="sl"><span>Overlay opacity (everything)</span><input type="range" id="overlayOpacity" min="0.1" max="1" step="0.05"><em id="overlayOpacityV"></em></div>
         <div class="sl"><span>Map opacity</span><input type="range" id="mapOpacity" min="0.15" max="1" step="0.05"><em id="mapOpacityV"></em></div>
         <div class="sl"><span>Overlay scale</span><input type="range" id="overlayScale" min="0.5" max="1.5" step="0.05"><em id="overlayScaleV"></em></div>
         <div class="sl"><span>Panel opacity</span><input type="range" id="panelOpacity" min="0.15" max="1" step="0.05"><em id="panelOpacityV"></em></div>
@@ -163,7 +172,8 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
         <div style="margin-top:8px">
           <span class="chip" data-tog="headingUp">heading-up map</span><span class="chip" data-tog="rangeRings">range rings</span><span class="chip" data-tog="roundMask">round mask</span><span class="chip" data-tog="showTrail">trail</span><span class="chip" data-tog="showLabels">place names</span><span class="chip" data-tog="showHudText">distance panel</span><span class="chip" data-tog="showQuests">quest panel</span><span class="chip" data-tog="showTags">in-game tags</span><span class="chip" data-tog="overlayOnlyInGame">only while Tarkov is in front</span>
         </div>
-        <div style="margin-top:10px"><button id="bBig">Open full map</button><button id="bHide">Show / hide overlay (F10)</button><button id="bInteract">Interact with overlay (F9)</button></div>
+        <div style="margin-top:10px"><button id="bBig">Open full map</button><button id="bBigClose">Close full map</button> &nbsp; <button id="bMiniShow">Show minimap</button><button id="bMiniHide">Hide minimap</button><button id="bInteract">Interact with minimap (F9)</button></div>
+        <div class="k" id="ovState" style="margin-top:6px"></div>
       </div>
       <div class="card"><h3>Log</h3><div class="mono" id="log"></div></div>
     </section>
@@ -220,7 +230,7 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
 
     <section id="s-layers">
       <h2>Layers</h2>
-      <div class="sub">What the minimap and the full map show for the current map. Also changeable by typing on the full map.</div>
+      <div class="sub">What the maps show for the current map. The chip switches a layer on the full map; the eye next to it decides whether the in-game minimap draws it too, so you can keep the full map busy and the game clean. "All quests" starts hidden in game — only the quests you are on show there.</div>
       <div class="notice" id="layerNotice"></div>
       <div class="card"><div id="layerChips"></div>
         <div class="k" style="margin-top:6px"><b>All quests</b> draws every quest with a spot on this map, coloured by state (amber accepted, white not started, grey locked, green done). <b>Quest items</b> shows items that accepted and future quests need, at the spots where they can spawn; hover or click one on the full map for the quests, the count, found-in-raid and a tick box.</div>
@@ -259,8 +269,8 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
         <p class="p">A key the app takes here is <b>swallowed before Tarkov sees it</b>, so pick keys the game does not use, or switch one off. Click a box, then press the key (with Ctrl / Alt / Shift if you like) or a mouse button — middle, back or forward; Backspace switches it off. A mouse button is only watched, so Tarkov still gets the click. The hold-to-stream key above is different: the app only watches it, Tarkov still gets it.</p>
         <div class="grid3">
           <div><label class="f">Ping "regroup" at my spot</label><input type="text" class="hk" data-hk="ping" readonly placeholder="off"></div>
-          <div><label class="f">Map opacity down</label><input type="text" class="hk" data-hk="opacityDown" readonly placeholder="off"></div>
-          <div><label class="f">Map opacity up</label><input type="text" class="hk" data-hk="opacityUp" readonly placeholder="off"></div>
+          <div><label class="f">Overlay opacity down</label><input type="text" class="hk" data-hk="opacityDown" readonly placeholder="off"></div>
+          <div><label class="f">Overlay opacity up</label><input type="text" class="hk" data-hk="opacityUp" readonly placeholder="off"></div>
           <div><label class="f">Make the overlay clickable</label><input type="text" class="hk" data-hk="interact" readonly placeholder="off"></div>
           <div><label class="f">Hide / show the overlay</label><input type="text" class="hk" data-hk="hide" readonly placeholder="off"></div>
         </div>
@@ -330,9 +340,9 @@ button.danger { border-color: rgba(255,90,90,.5); color: var(--red); }
       <h3 id="h-squad">8 · Squad sharing and pings</h3>
       <p>Everyone types the same squad code and their name. On the same network the app finds the others by itself; positions are shared only inside the same raid. Teammates show on both maps and as a small name tag in the game view (approximate, refreshed with each of your fixes). Pings mark a spot at your position with a word; they show on every squadmate's maps and as a tag, and expire after five minutes.</p>
       <h3 id="h-layers">9 · Layers, flea filter and the ask box</h3>
-      <p>Chips switch layers per map: extracts, quests, all quests, quest items, places, distance text, squad, keys, bosses, scav spawns, PMC spawns, hazards, containers, loot, machine guns, switches. <b>Loot value</b> (Style, or the Layers page) colours 25 m squares by the loot that can spawn there. The flea slider lights loot spots where an item worth at least that much can spawn (a spawn map, not what actually spawned). The ask box takes a sentence like <code>show extracts, dorm keys and anything over 40k</code> or <code>quest items and all quests</code>; if the built-in parser doesn't get it and you added an OpenRouter key, a free model translates it. Marker data comes from json.tarkov.dev; the game's own data covers spawns, bosses and names when it is down, and the app retries every 15 minutes.</p>
+      <p>Every layer chip has an eye next to it: green eye = drawn on the in-game minimap too, red crossed eye = full map only. "Hide all in game" clears the minimap to just you, your squad and the raid line in one click. </p><p>Chips switch layers per map: extracts, quests, all quests, quest items, places, distance text, squad, keys, bosses, scav spawns, PMC spawns, hazards, containers, loot, machine guns, switches. <b>Loot value</b> (Style, or the Layers page) colours 25 m squares by the loot that can spawn there. The flea slider lights loot spots where an item worth at least that much can spawn (a spawn map, not what actually spawned). The ask box takes a sentence like <code>show extracts, dorm keys and anything over 40k</code> or <code>quest items and all quests</code>; if the built-in parser doesn't get it and you added an OpenRouter key, a free model translates it. Marker data comes from json.tarkov.dev; the game's own data covers spawns, bosses and names when it is down, and the app retries every 15 minutes.</p>
       <h3 id="h-fullscreen">10 · Fullscreen vs borderless</h3>
-      <p>On Windows 11 a fullscreen EFT normally still shows the overlay thanks to fullscreen optimizations. If you see nothing while the game has focus, either switch EFT to borderless (no performance difference on Windows 11) or use the second-monitor map, which always works.</p>
+      <p>The minimap is a transparent window on top of the desktop, so it can only be seen where Windows composes the desktop. <b>Borderless</b> always works. <b>Fullscreen</b> works on Windows 11 as long as "fullscreen optimizations" are on for EscapeFromTarkov.exe (the default; check the exe's Properties ▸ Compatibility tab that "Disable fullscreen optimizations" is unticked). True exclusive fullscreen hands the screen to the game alone and nothing outside the game can draw over it — the only way in would be injecting into the game, which this app will never do. The app re-asserts the overlay on top every time Tarkov becomes the active window; if you still see nothing, switch to borderless (no performance difference on Windows 11) or use the second-monitor map, which always works.</p>
       <h3 id="h-privacy">11 · Privacy, storage and fair play</h3>
       <p>Screenshots are deleted about a second after they appear; the folder count on the Raid page should read zero. Map tiles and RE3MR renders are cached once under the data folder and can be cleared; your quest book and ticked objectives live there too (quests.json, quest-progress.json). Nothing is uploaded except your squad messages to your own squad and the ask-box sentence to OpenRouter when you enabled it. No enemy positions, no memory reading, no injection.</p>
       <h3 id="h-trouble">12 · Troubleshooting</h3>

@@ -9,6 +9,8 @@
   TM.LAYERS = [["extracts", "Extracts"], ["quests", "Quests"], ["allquests", "All quests"], ["questitems", "Quest items"], ["landmarks", "Places"], ["hud", "Distance text", "control"], ["squad", "Squad"], ["keys", "Keys"], ["bosses", "Bosses"], ["scavs", "Scav spawns"], ["pmc", "PMC spawns"], ["hazards", "Hazards"], ["containers", "Containers"], ["loot", "Loot"], ["guns", "MGs"], ["switches", "Switches"]];
   TM.DEFAULT_LAYERS = ["extracts", "quests", "landmarks", "hud", "squad", "bosses"];
   TM.layersOn = (settings, mapKey) => new Set((settings && settings.layers && settings.layers[mapKey]) || TM.DEFAULT_LAYERS);
+  /** What the in-game minimap draws: the map's layers minus the ones eye-toggled off for in-game. */
+  TM.overlayLayersOn = (settings, mapKey) => { const s = TM.layersOn(settings, mapKey); for (const h of (settings && settings.hiddenInGame) || []) s.delete(h); return s; };
   /** One wording for the state of the marker/quest data, used by every surface. */
   TM.dataNotice = function (d) {
     d = d || {};

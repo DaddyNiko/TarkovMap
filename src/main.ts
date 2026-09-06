@@ -282,15 +282,25 @@ function trayMenu(): Menu {
 }
 
 // ── Hotkeys ────────────────────────────────────────────────────────────────
-function toggleOverlayHidden(): void {
-  overlayHidden = !overlayHidden;
+/** Tarkov just came to the front: put the overlay windows back above it (a fullscreen game with
+ *  fullscreen optimizations re-layers the desktop; without re-asserting topmost they can end up beneath). */
+function retopOverlay(): void {
+  for (const w of [overlay, tags]) {
+    if (!w || w.isDestroyed() || !w.isVisible()) continue;
+    try { w.setAlwaysOnTop(true, "screen-saver"); w.moveTop(); } catch { /* window going away */ }
+  }
+}
+function toggleOverlayHidden(): void { setOverlayHidden(!overlayHidden); }
+function setOverlayHidden(hidden: boolean): void {
+  overlayHidden = hidden;
   applyOverlayVisibility();
   broadcast("overlay-mode", { interactive: overlayInteractive, hidden: overlayHidden });
+  pushSnapshot();
 }
 
 const HOTKEY_ACTIONS: Record<keyof Settings["hotkeys"], () => void> = {
-  opacityDown: () => patchSettings({ mapOpacity: Math.max(0.15, settings.mapOpacity - 0.1) }),
-  opacityUp: () => patchSettings({ mapOpacity: Math.min(1, settings.mapOpacity + 0.1) }),
+  opacityDown: () => patchSettings({ overlayOpacity: Math.max(0.1, Math.round((settings.overlayOpacity - 0.1) * 100) / 100) }),
+  opacityUp: () => patchSettings({ overlayOpacity: Math.min(1, Math.round((settings.overlayOpacity + 0.1) * 100) / 100) }),
   interact: () => { overlayInteractive = !overlayInteractive; applyClickThrough(); },
   hide: () => toggleOverlayHidden(),
   ping: () => dropPing("regroup"),
@@ -753,6 +763,7 @@ function registerIpc(): void {
   ipcMain.handle("window:hide", (e) => BrowserWindow.fromWebContents(e.sender)?.hide());
   ipcMain.handle("overlay:interactive", (_e, v: boolean) => { overlayInteractive = v; applyClickThrough(); });
   ipcMain.handle("overlay:toggleHidden", () => toggleOverlayHidden());
+  ipcMain.handle("overlay:setHidden", (_e, hidden: boolean) => setOverlayHidden(Boolean(hidden)));
   ipcMain.handle("app:quit", () => { quitting = true; app.quit(); });
   ipcMain.handle("detect:install", () => detectInstall());
   ipcMain.handle("tiles:fetchAll", () => void cacheAllTilesInBackground());
@@ -907,7 +918,7 @@ if (!lock) {
     registerHotkeys();
     armDebugCapture();
     sender.on("line", (l: string) => {
-      if (l.startsWith("fg ")) { foregroundApp = l.slice(3).trim(); applyOverlayVisibility(); return; }
+      if (l.startsWith("fg ")) { foregroundApp = l.slice(3).trim(); applyOverlayVisibility(); if (GAME_PROCESSES.has(foregroundApp)) retopOverlay(); return; }
       if (l.startsWith("game ")) {
         const now = l.slice(5).trim() === "1";
         if (gameRunning !== now) { gameRunning = now; log(now ? "Tarkov is running — map windows armed" : "Tarkov closed — back to the tray"); applyOverlayVisibility(); pushSnapshot(); }

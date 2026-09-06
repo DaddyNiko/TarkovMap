@@ -16,6 +16,8 @@ export interface Settings {
   intervalMs: number;
   /** Ghost defaults: map 40 %, scale 80 %, panel 80 %. */
   mapOpacity: number;
+  /** One dial for the whole overlay: minimap, side panel, tags. 0.1–1. */
+  overlayOpacity: number;
   overlayScale: number;
   panelOpacity: number;
   /** Minimap size in px before scale, and which corner of the main display. */
@@ -40,6 +42,8 @@ export interface Settings {
   gameFov: number;
   /** Per-map layer toggles: key → list of layer ids switched on. */
   layers: Record<string, string[]>;
+  /** Layer ids kept off the in-game minimap (the eye toggles on the Layers page); the full map still draws them. */
+  hiddenInGame: string[];
   /** Flea filter threshold in roubles (0 = off). */
   fleaMin: number;
   /** Colour the map by how valuable the loot that can spawn there is (possible loot, never what spawned). */
@@ -104,6 +108,7 @@ export const DEFAULT_SETTINGS: Settings = {
   holdKey: "CapsLock",
   intervalMs: 2000,
   mapOpacity: 0.4,
+  overlayOpacity: 1,
   overlayScale: 0.8,
   panelOpacity: 0.8,
   minimapSize: 470,
@@ -124,6 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
   showTags: true,
   gameFov: 65,
   layers: {},
+  hiddenInGame: ["allquests"],
   fleaMin: 0,
   lootHeat: false,
   questItemMin: 8,
@@ -161,6 +167,7 @@ export function sanitize(s: Settings): Settings {
   return {
     ...s,
     mapOpacity: clamp(num(s.mapOpacity, DEFAULT_SETTINGS.mapOpacity), 0.15, 1),
+    overlayOpacity: clamp(num(s.overlayOpacity, DEFAULT_SETTINGS.overlayOpacity), 0.1, 1),
     overlayScale: clamp(num(s.overlayScale, DEFAULT_SETTINGS.overlayScale), 0.5, 1.5),
     panelOpacity: clamp(num(s.panelOpacity, DEFAULT_SETTINGS.panelOpacity), 0.15, 1),
     minimapSize: Math.round(clamp(num(s.minimapSize, DEFAULT_SETTINGS.minimapSize), 200, 1200)),
@@ -184,6 +191,7 @@ export function sanitize(s: Settings): Settings {
     extrudeDepth: Math.round(clamp(num(s.extrudeDepth, 4), 0, 12)),
     manualMapKey: typeof s.manualMapKey === "string" && s.manualMapKey ? s.manualMapKey : null,
     hotkeys: sanitizeHotkeys(s.hotkeys),
+    hiddenInGame: Array.isArray(s.hiddenInGame) ? s.hiddenInGame.filter((x): x is string => typeof x === "string").slice(0, 40) : [...DEFAULT_SETTINGS.hiddenInGame],
     overlayOnlyInGame: s.overlayOnlyInGame !== false,
     startWithWindows: s.startWithWindows !== false,
   };

@@ -7,6 +7,9 @@
  * care about, verified against a real session:
  *
  *   …|application|TRACE-NetworkGameCreate profileStatus: '… Location: Sandbox, … RaidMode: Online …'
+ *     (older builds; 1.1.0.1 stopped writing it — the two lines below carry the map now)
+ *   …|application|scene preset path:maps/customs_preset.bundle rcid:bigmap.scenespreset.asset
+ *   …|application|[Transit] Flag:None, RaidId:6a9d69ba…, Count:0, Locations:bigmap ->
  *   …|application|LocationLoaded:15.4 real:20.09 diff:4.69
  *   …|application|GameStarted:…
  *   …|application|PrepareSelectedProfileLocally ProfileId:…   (back in the menu after a raid)
@@ -42,6 +45,8 @@ const LOCATION_RE = /Location: (?<loc>[^,'\s]+)/;
 const RAID_ID_RE = /shortId: (?<id>[A-Z0-9]{4,8})/;
 const NOTIFICATION_RE = /Got notification \| (?<kind>[A-Za-z]+)/;
 const STAMP_RE = /^(?<date>\d{4}-\d{2}-\d{2}) (?<time>\d{2}:\d{2}:\d{2})/;
+const SCENE_RE = /rcid:(?<loc>[A-Za-z0-9_]+)\.scenespreset/;
+const TRANSIT_RE = /RaidId:(?<id>[0-9a-f]{24}).*Locations:(?<locs>[^|]*)$/;
 
 export function parseLogLine(line: string): LogEvent | null {
   let cut = line.indexOf("|application|");
@@ -58,6 +63,20 @@ export function parseLogLine(line: string): LogEvent | null {
       online: body.includes("RaidMode: Online"),
       raidId: RAID_ID_RE.exec(body)?.groups?.id,
     };
+  }
+  if (body.startsWith("scene preset path:")) {
+    const loc = SCENE_RE.exec(body)?.groups?.loc;
+    const mapKey = loc ? mapKeyForLocation(loc) : null;
+    if (!loc || !mapKey) return null;
+    return { type: "location", location: loc, mapKey, online: true, raidId: undefined };
+  }
+  if (body.startsWith("[Transit]")) {
+    const m = TRANSIT_RE.exec(body);
+    const locs = (m?.groups?.locs ?? "").split("->").map((x) => x.trim()).filter(Boolean);
+    const loc = locs[locs.length - 1];
+    const mapKey = loc ? mapKeyForLocation(loc) : null;
+    if (!loc || !mapKey) return null;
+    return { type: "location", location: loc, mapKey, online: true, raidId: m?.groups?.id };
   }
   if (body.startsWith("Matching with group id")) return { type: "matching" };
   if (body.startsWith("LocationLoaded")) return { type: "loaded" };

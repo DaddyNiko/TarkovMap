@@ -16,7 +16,7 @@
   let lastLayersKey = "";
 
   const RAID_MIN = TM.RAID_MINUTES;
-  const onLayers = () => (snap && mapPayload ? TM.layersOn(snap.settings, mapPayload.def.key) : new Set(TM.DEFAULT_LAYERS));
+  const onLayers = () => (snap && mapPayload ? TM.overlayLayersOn(snap.settings, mapPayload.def.key) : new Set(TM.DEFAULT_LAYERS));
 
   // ── HUD layout (window is already sized to the region by main) ─────────
   function layout() {
@@ -24,6 +24,7 @@
     const s = snap.settings;
     const ui = $("ui");
     ui.style.transform = `scale(${s.overlayScale})`;
+    ui.style.opacity = s.overlayOpacity == null ? 1 : s.overlayOpacity;
     ui.style.width = `${100 / s.overlayScale}%`;
     ui.style.height = `${100 / s.overlayScale}%`;
     const mm = $("mmwrap");

@@ -5,7 +5,7 @@
   const HOLD = ["CapsLock","LeftShift","LeftCtrl","LeftAlt","RightAlt","Tab","Mouse4","Mouse5","Mouse3","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","Numpad0"];
   const LAYERS = TM.LAYERS;
   const STYLES = [["studio", "Light"], ["night", "Dark"]];
-  const SLIDERS = ["mapOpacity", "overlayScale", "panelOpacity", "minimapSize", "followZoom", "margin", "gameFov", "fleaMin", "extrudeDepth", "questItemMin"];
+  const SLIDERS = ["overlayOpacity", "mapOpacity", "overlayScale", "panelOpacity", "minimapSize", "followZoom", "margin", "gameFov", "fleaMin", "extrudeDepth", "questItemMin"];
   let snap = null, mapPayload = null, questPayload = null;
   let dirtySetup = false;
 
@@ -31,7 +31,9 @@
   document.querySelectorAll("[data-ping]").forEach((c) => (c.onclick = () => window.api.ping(c.dataset.ping)));
   document.querySelectorAll("[data-flag]").forEach((c) => (c.onclick = () => window.api.squadStatus(c.dataset.flag)));
   $("bBig").onclick = () => window.api.showBigMap(true);
-  $("bHide").onclick = () => window.api.toggleOverlayHidden();
+  $("bBigClose").onclick = () => window.api.showBigMap(false);
+  $("bMiniShow").onclick = () => window.api.setOverlayHidden(false);
+  $("bMiniHide").onclick = () => window.api.setOverlayHidden(true);
   $("bInteract").onclick = () => window.api.setOverlayInteractive(true);
   $("bSquadSave").onclick = () => window.api.saveSettings({ playerName: $("playerName").value.trim(), squadCode: $("squadCode").value.trim(), squadEnabled: $("squadEnabled").checked });
   $("bDetect").onclick = async () => { const p = await window.api.detectInstall(); if (p) { $("installPath").value = p; dirtySetup = true; } $("installOk").textContent = p ? `found: ${p}` : "not found — paste the folder that contains build\\Logs"; };
@@ -120,6 +122,7 @@
     const f = snap.fix;
     $("rFeed").textContent = f ? `${f.x.toFixed(0)}, ${f.z.toFixed(0)} · ${Math.round(f.yaw)}°` : "no fix yet";
     $("rFeedSub").textContent = f ? `${Math.round((Date.now() - f.at) / 1000)} s ago · mode: ${snap.settings.mode}${snap.settings.mode === "hold" ? " (" + snap.settings.holdKey + ")" : ""}` : snap.settings.mode === "auto" ? `auto · fires ${snap.settings.screenshotKey} every ${snap.settings.intervalMs / 1000} s while Tarkov or Arena is in front` : `mode: ${snap.settings.mode} · press ${snap.settings.screenshotKey} in raid`;
+    if (snap.overlay) { const o = snap.overlay; const inFront = /^EscapeFromTarkov/.test(o.foregroundApp || ""); $("ovState").textContent = o.hidden ? `minimap: hidden (${(snap.settings.hotkeys && snap.settings.hotkeys.hide) || "Show minimap"} brings it back)` : !snap.settings.overlayOnlyInGame ? "minimap: on, shown on the desktop too" : inFront ? "minimap: on, Tarkov is in front" : o.gameRunning ? "minimap: on — appears as soon as Tarkov is the active window" : "minimap: on — appears when Tarkov is running and in front"; }
     $("rShots").textContent = `${snap.screenshots.files} files · ${(snap.screenshots.bytes / 1048576).toFixed(1)} MB`;
     for (const id of SLIDERS) if (document.activeElement !== $(id)) { $(id).value = snap.settings[id]; $(id + "V").textContent = fmtV(id, snap.settings[id]); }
     document.querySelectorAll("[data-corner]").forEach((c) => c.classList.toggle("on", c.dataset.corner === snap.settings.corner));
@@ -164,17 +167,37 @@
     if (sel.options.length === 0) for (const m of snap.maps.filter((x) => x.re3mr)) sel.add(new Option(m.name, m.key));
   }
 
+  const EYE = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const EYE_OFF = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.9 17.9A10.9 10.9 0 0 1 12 19C5 19 1 12 1 12a20 20 0 0 1 5.1-5.9M9.9 5.2A10 10 0 0 1 12 5c7 0 11 7 11 7a20 20 0 0 1-3.2 4.2M14.1 14.1a3 3 0 0 1-4.2-4.2"/><path d="M3 3l18 18"/></svg>';
   function paintLayers() {
     const el = $("layerChips");
     el.innerHTML = "";
     if (!mapPayload) { el.innerHTML = '<span class="k">pick a map first</span>'; return; }
     const set = TM.layersOn(snap.settings, mapPayload.def.key);
+    const hidden = new Set(snap.settings.hiddenInGame || []);
+    const saveHidden = () => window.api.saveSettings({ hiddenInGame: [...hidden] });
+    const head = document.createElement("div");
+    head.className = "eyehead";
+    head.innerHTML = `<span class="k">chip = on the maps · eye = also on the in-game minimap</span><span class="sp"></span><button data-eye="all">${EYE} show all in game</button><button data-eye="none">${EYE_OFF} hide all in game</button>`;
+    head.querySelector('[data-eye="all"]').onclick = () => { hidden.clear(); saveHidden(); };
+    head.querySelector('[data-eye="none"]').onclick = () => { for (const [id] of LAYERS) hidden.add(id); saveHidden(); };
+    el.appendChild(head);
     for (const [id, label] of LAYERS) {
+      const wrap = document.createElement("span");
+      wrap.className = "chipwrap";
       const c = document.createElement("span");
       c.className = "chip" + (set.has(id) ? " on" : "");
       c.textContent = label;
       c.onclick = () => { set.has(id) ? set.delete(id) : set.add(id); window.api.setLayers(mapPayload.def.key, [...set]); };
-      el.appendChild(c);
+      const eye = document.createElement("button");
+      const off = hidden.has(id);
+      eye.className = "eye " + (off ? "off" : "on");
+      eye.innerHTML = off ? EYE_OFF : EYE;
+      eye.title = off ? `${label}: hidden on the in-game minimap — click to show` : `${label}: shown on the in-game minimap — click to hide`;
+      eye.onclick = () => { off ? hidden.delete(id) : hidden.add(id); saveHidden(); };
+      wrap.appendChild(c);
+      wrap.appendChild(eye);
+      el.appendChild(wrap);
     }
   }
 
