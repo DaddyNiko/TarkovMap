@@ -24,7 +24,7 @@ import { floorForPosition, interactiveMaps, type MapDef } from "./map-data.js";
 import { GameWatcher, INITIAL_STATE, logsDirFor, scanQuestHistory, type GameState, type LogEvent } from "./game-watcher.js";
 import { ScreenshotFeed, type PlayerFix } from "./screenshot-feed.js";
 import { KeySender } from "./key-sender.js";
-import { DEFAULT_SETTINGS, defaultScreenshotsFolder, loadSettings, sanitize, saveSettings, type Settings } from "./settings.js";
+import { DEFAULT_SETTINGS, arenaScreenshotsFolder, defaultScreenshotsFolder, loadSettings, sanitize, saveSettings, type Settings } from "./settings.js";
 import { detectInstall, myDocuments } from "./install.js";
 import { CACHE_TTL_MS, featuresFor, fetchFeatures, readCache, writeCache, type FeatureCache } from "./map-features.js";
 import { cacheMapTiles, localTemplate, readSvg, tileTemplates, type FetchProgress } from "./tiles.js";
@@ -63,6 +63,8 @@ let tray: Tray | null = null;
 let settings: Settings = { ...DEFAULT_SETTINGS };
 let game: GameWatcher | null = null;
 let feed: ScreenshotFeed | null = null;
+/** Arena writes its screenshots to its own Documents folder; watched only when that folder exists. */
+let arenaFeed: ScreenshotFeed | null = null;
 const sender = new KeySender();
 let lastFix: PlayerFix | null = null;
 const trail: Array<{ x: number; z: number; at: number }> = [];
@@ -363,10 +365,21 @@ function onMapChanged(): void {
 
 function armFeed(): void {
   feed?.stop();
+  arenaFeed?.stop();
+  arenaFeed = null;
   const folder = settings.screenshotsFolder || defaultScreenshotsFolder(myDocuments());
   settings.screenshotsFolder = folder;
-  feed = new ScreenshotFeed({ folder, deleteAfterRead: settings.deleteScreenshots });
-  feed.on("fix", (fix: PlayerFix) => {
+  feed = wireFeed(new ScreenshotFeed({ folder, deleteAfterRead: settings.deleteScreenshots }));
+  log(`watching screenshots in ${folder}`);
+  const arena = arenaScreenshotsFolder(myDocuments());
+  if (arena.toLowerCase() !== folder.toLowerCase() && existsSync(arena)) {
+    arenaFeed = wireFeed(new ScreenshotFeed({ folder: arena, deleteAfterRead: settings.deleteScreenshots }));
+    log(`watching Arena screenshots in ${arena}`);
+  }
+}
+
+function wireFeed(f: ScreenshotFeed): ScreenshotFeed {
+  f.on("fix", (fix: PlayerFix) => {
     lastFix = fix;
     trail.push({ x: fix.x, z: fix.z, at: fix.at });
     while (trail.length > 400) trail.shift();
@@ -377,10 +390,16 @@ function armFeed(): void {
     tickFromFix(fix);
     pushSnapshot();
   });
-  feed.on("swept", (n: number) => log(`screenshots: removed ${n} leftover file(s)`));
-  feed.on("error", (e: Error) => log(`screenshots: ${e.message}`));
-  feed.start();
-  log(`watching screenshots in ${folder}`);
+  f.on("swept", (n: number) => log(`screenshots: removed ${n} leftover file(s)`));
+  f.on("error", (e: Error) => log(`screenshots: ${e.message}`));
+  f.start();
+  return f;
+}
+
+function feedStats(): { files: number; bytes: number } {
+  const a = feed?.stats() ?? { files: 0, bytes: 0 };
+  const b = arenaFeed?.stats() ?? { files: 0, bytes: 0 };
+  return { files: a.files + b.files, bytes: a.bytes + b.bytes };
 }
 
 function armSender(): void {
@@ -668,7 +687,7 @@ function snapshot() {
     maps: MAPS.map((m) => ({ key: m.key, name: m.name, re3mr: Boolean(sourceFor(m.key)), re3mrReady: re3mrReady.has(m.key), registered: Boolean(registrationFor(m.key)), errorM: registrationFor(m.key)?.errorM ?? null, projective: Boolean(registrationFor(m.key)?.homography) })),
     displays: screen.getAllDisplays().map((d) => ({ id: d.id, label: `${d.label || "Display"} ${d.size.width}×${d.size.height}${d.id === screen.getPrimaryDisplay().id ? " (main)" : ""}`, primary: d.id === screen.getPrimaryDisplay().id })),
     install: { path: settings.installPath, logsDir: settings.installPath ? logsDirFor(settings.installPath) : null },
-    screenshots: feed ? feed.stats() : { files: 0, bytes: 0 },
+    screenshots: feedStats(),
     tileCache: dirSize(TILE_ROOT()), re3mrCache: dirSize(RE3MR_DIR()), tiles: tileProgress, re3mrProgress,
     data: dataStatus, overlay: { interactive: overlayInteractive, hidden: overlayHidden, gameRunning, foregroundApp }, log: logLines.slice(-60),
   };
@@ -886,9 +905,9 @@ if (!lock) {
       squad?.prune();
       if (myPings.some((p) => p.at + p.ttlMs <= Date.now())) { myPings = myPings.filter((p) => p.at + p.ttlMs > Date.now()); ensureTagsWindow(); pushSnapshot(); }
     }, 5000);
-    setInterval(() => broadcast("tick", { now: Date.now(), screenshots: feed?.stats() ?? { files: 0, bytes: 0 } }), 1000);
+    setInterval(() => broadcast("tick", { now: Date.now(), screenshots: feedStats() }), 1000);
   });
   app.on("window-all-closed", () => { /* stay in the tray */ });
   app.on("will-quit", () => globalShortcut.unregisterAll());
-  app.on("before-quit", () => { quitting = true; game?.stop(); feed?.stop(); sender.stop(); squad?.stop(); });
+  app.on("before-quit", () => { quitting = true; game?.stop(); feed?.stop(); arenaFeed?.stop(); sender.stop(); squad?.stop(); });
 }

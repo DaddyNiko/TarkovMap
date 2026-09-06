@@ -4,6 +4,8 @@
  * Three modes, all plain user-level `SendInput` (the same call a keyboard
  * driver's software makes) and all gated on EscapeFromTarkov being the
  * foreground window:
+ *   auto   — sends every `intervalMs` whenever Tarkov or Arena is the front
+ *            window. Nothing to hold, nothing to switch on: start the game, it runs.
  *   manual — never sends; the player taps the key themself.
  *   hold   — sends every `intervalMs` while `holdKey` is physically held.
  *   timer  — sends every `intervalMs` whenever `inRaid` is true.
@@ -17,7 +19,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 
-export type SendMode = "manual" | "hold" | "timer";
+export type SendMode = "auto" | "manual" | "hold" | "timer";
 
 export interface KeySenderConfig {
   mode: SendMode;
@@ -28,7 +30,7 @@ export interface KeySenderConfig {
   intervalMs: number;
 }
 
-export const DEFAULT_SENDER: KeySenderConfig = { mode: "manual", screenshotKey: "F11", holdKey: "CapsLock", intervalMs: 2000 };
+export const DEFAULT_SENDER: KeySenderConfig = { mode: "auto", screenshotKey: "F11", holdKey: "CapsLock", intervalMs: 2000 };
 
 /** Names accepted by the settings screen → Win32 virtual-key codes. */
 export const VK: Record<string, number> = {
@@ -109,9 +111,11 @@ public static class TkInput {
 "@
 $mode = "manual"; $shotVk = 0x7A; $holdVk = 0x14; $interval = 2000; $inRaid = $false
 $holding = $false; $lastSent = [DateTime]::MinValue; $fgLast = ""; $gLast = $null; $tick = 0
+$gameNames = @("EscapeFromTarkov", "EscapeFromTarkovArena", "EscapeFromTarkov_BE", "EscapeFromTarkovArena_BE")
+function Game-InFront { return ($gameNames -contains [TkInput]::ForegroundProcess()) }
 function Send-Shot {
   $fg = [TkInput]::ForegroundProcess()
-  if ($fg -ne "EscapeFromTarkov") { [Console]::Out.WriteLine("skip-foreground " + $fg); return }
+  if ($gameNames -notcontains $fg) { [Console]::Out.WriteLine("skip-foreground " + $fg); return }
   $ok = $false
   if ($shotVk -eq 4) { $ok = [TkInput]::PressMouse(3) }
   elseif ($shotVk -eq 5) { $ok = [TkInput]::PressMouse(4) }
@@ -149,6 +153,8 @@ while ($true) {
     elseif ($h -and $due) { Send-Shot }
   } elseif ($mode -eq "timer") {
     if ($inRaid -and $due) { Send-Shot }
+  } elseif ($mode -eq "auto") {
+    if ($due -and (Game-InFront)) { Send-Shot }
   }
   Start-Sleep -Milliseconds 100
 }

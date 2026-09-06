@@ -96,7 +96,7 @@ export const DEFAULT_SETTINGS: Settings = {
   installPath: null,
   screenshotsFolder: null,
   deleteScreenshots: true,
-  mode: "hold",
+  mode: "auto",
   screenshotKey: "F11",
   holdKey: "CapsLock",
   intervalMs: 2000,
@@ -170,7 +170,7 @@ export function sanitize(s: Settings): Settings {
     questItemMin: Math.round(clamp(num(s.questItemMin, 8), 0, 30)),
     showDoneQuests: Boolean(s.showDoneQuests),
     corner: CORNERS.includes(s.corner) ? s.corner : "top-right",
-    mode: (["manual", "hold", "timer"] as const).includes(s.mode) ? s.mode : "hold",
+    mode: (["auto", "manual", "hold", "timer"] as const).includes(s.mode) ? s.mode : "auto",
     playerName: String(s.playerName ?? "").slice(0, 24),
     squadCode: String(s.squadCode ?? "").slice(0, 32),
     openrouterKey: String(s.openrouterKey ?? "").trim(),
@@ -205,4 +205,8 @@ export function saveSettings(file: string, s: Settings): void {
 /** EFT's default screenshot folder: <MyDocuments>\Escape From Tarkov\Screenshots. */
 export function defaultScreenshotsFolder(myDocuments: string): string {
   return join(myDocuments, "Escape From Tarkov", "Screenshots");
+}
+/** Arena writes next door: <MyDocuments>\Escape From Tarkov Arena\Screenshots. */
+export function arenaScreenshotsFolder(myDocuments: string): string {
+  return join(myDocuments, "Escape From Tarkov Arena", "Screenshots");
 }

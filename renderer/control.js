@@ -116,7 +116,7 @@
     $("mapSrc").textContent = snap.mapSource === "game" ? "map from the game (in raid)" : snap.mapSource === "pick" ? "your pick — the game overrides it in a raid" : "last map the game reported";
     const f = snap.fix;
     $("rFeed").textContent = f ? `${f.x.toFixed(0)}, ${f.z.toFixed(0)} · ${Math.round(f.yaw)}°` : "no fix yet";
-    $("rFeedSub").textContent = f ? `${Math.round((Date.now() - f.at) / 1000)} s ago · mode: ${snap.settings.mode}${snap.settings.mode === "hold" ? " (" + snap.settings.holdKey + ")" : ""}` : `mode: ${snap.settings.mode} · press ${snap.settings.screenshotKey} in raid`;
+    $("rFeedSub").textContent = f ? `${Math.round((Date.now() - f.at) / 1000)} s ago · mode: ${snap.settings.mode}${snap.settings.mode === "hold" ? " (" + snap.settings.holdKey + ")" : ""}` : snap.settings.mode === "auto" ? `auto · fires ${snap.settings.screenshotKey} every ${snap.settings.intervalMs / 1000} s while Tarkov or Arena is in front` : `mode: ${snap.settings.mode} · press ${snap.settings.screenshotKey} in raid`;
     $("rShots").textContent = `${snap.screenshots.files} files · ${(snap.screenshots.bytes / 1048576).toFixed(1)} MB`;
     for (const id of SLIDERS) if (document.activeElement !== $(id)) { $(id).value = snap.settings[id]; $(id + "V").textContent = fmtV(id, snap.settings[id]); }
     document.querySelectorAll("[data-corner]").forEach((c) => c.classList.toggle("on", c.dataset.corner === snap.settings.corner));

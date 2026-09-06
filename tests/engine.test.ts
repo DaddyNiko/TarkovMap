@@ -182,3 +182,25 @@ describe("game log", () => {
     expect(s.raid).toBe("menu");
   });
 });
+
+import { HELPER_SCRIPT, DEFAULT_SENDER } from "../src/key-sender.js";
+import { sanitize as sanitizeSettings, DEFAULT_SETTINGS as DS, arenaScreenshotsFolder } from "../src/settings.js";
+
+describe("auto send mode", () => {
+  it("is the default and survives sanitize; unknown modes fall back to auto", () => {
+    expect(DEFAULT_SENDER.mode).toBe("auto");
+    expect(DS.mode).toBe("auto");
+    expect(sanitizeSettings({ ...DS, mode: "auto" } as never).mode).toBe("auto");
+    expect(sanitizeSettings({ ...DS, mode: "bogus" } as never).mode).toBe("auto");
+    expect(sanitizeSettings({ ...DS, mode: "hold" } as never).mode).toBe("hold");
+  });
+  it("helper fires in auto mode only while Tarkov or Arena is the front window", () => {
+    expect(HELPER_SCRIPT).toMatch(/\$mode -eq "auto"/);
+    expect(HELPER_SCRIPT).toMatch(/Game-InFront/);
+    for (const n of ["EscapeFromTarkov", "EscapeFromTarkovArena", "EscapeFromTarkov_BE", "EscapeFromTarkovArena_BE"]) expect(HELPER_SCRIPT).toContain(`"${n}"`);
+    expect(HELPER_SCRIPT).not.toMatch(/\$fg -ne "EscapeFromTarkov"/);
+  });
+  it("Arena screenshots live in their own Documents folder", () => {
+    expect(arenaScreenshotsFolder("C:/Docs").split(/[\\/]/).slice(-3).join("/")).toBe("Docs/Escape From Tarkov Arena/Screenshots");
+  });
+});
